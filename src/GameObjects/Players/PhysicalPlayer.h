@@ -20,35 +20,45 @@
 #include "../../Utils/GLMConverter.h"
 #include "../../GUI/GUIRenderable.h"
 #include "../Sound.h"
+#include "../Model.h"
+#include "../../GamePlay/PlayerExtensionInterface.h"
 
 static const int STEPPING_TEST_COUNT = 5;
 
+class LimonAPI;
 
 class PhysicalPlayer : public Player, public CameraAttachment {
-
-    const glm::vec3 startPosition = glm::vec3(0, 10, 15);
-    const float standingHeight = 2.0f;
-
     glm::vec3 center, up, right;
     glm::quat view;
     btVector3 inputMovementSpeed;
     btVector3 groundFrictionMovementSpeed; //this is for emulating ground friction
     float groundFrictionFactor = 10.0f;
     btVector3 slowDownFactor = btVector3(2.5f, 1.0f, 2.5f);
+
     btRigidBody *player;
     btGeneric6DofSpring2Constraint *spring;
     float springStandPoint;
+    float startingHeight;
     int collisionGroup;
     int collisionMask;
+    uint32_t worldID = 0;
 
     std::vector<btCollisionWorld::ClosestRayResultCallback> rayCallbackArray;
     btTransform worldTransformHolder;
     bool onAir;
     bool positionSet = false;
-    Options *options;
     std::shared_ptr<Sound> currentSound = nullptr;
 
     bool dirty;
+    bool skipSpringByJump = false;
+    Model* attachedModel = nullptr;
+    glm::vec3 attachedModelOffset = glm::vec3(0,0,0);
+
+    glm::quat calculatePlayerRotation() const;
+
+    static const float CAPSULE_HEIGHT;
+    static const float CAPSULE_RADIUS;
+    static const float STANDING_HEIGHT;
 
 public:
     glm::vec3 getPosition() const {
@@ -61,6 +71,19 @@ public:
 
     btRigidBody* getRigidBody() {
         return player;
+    }
+
+    /**
+     * This method is used to render the placeholder in editor mode
+     * all parameters are references.
+     *
+     * I should/could build a model here, but then it whould be harder to extract this class with the API
+     */
+
+
+    void getRenderProperties(std::string& assetPath, glm::vec3& scale) {
+        assetPath = "./Engine/Models/Capsule/Capsule.obj"; //since this file is required by the engine itself.
+        scale = glm::vec3(1,1,1);
     }
 
     void registerToPhysicalWorld(btDiscreteDynamicsWorld *world, int collisionGroup, int collisionMask,
@@ -84,7 +107,7 @@ public:
         return dirty;//FIXME this always returns true because nothing sets it false;
     }
     void getCameraVariables(glm::vec3& position, glm::vec3 &center, glm::vec3& up, glm::vec3& right) {
-        position = GLMConverter::BltToGLM(this->getRigidBody()->getCenterOfMassPosition());
+        position = GLMConverter::BltToGLM(this->getRigidBody()->getWorldTransform().getOrigin());
         position.y += 1.0f;//for putting the camera up portion of capsule
         center = this->center;
         up = this->up;
@@ -105,6 +128,10 @@ public:
         return this->center;
     };
 
+    glm::quat getLookDirectionQuaternion() const {
+        return calculatePlayerRotation();
+    }
+
     void getWhereCameraLooks(glm::vec3 &fromPosition, glm::vec3 &lookDirection) const {
         fromPosition = this->getPosition();
         lookDirection = this->center;
@@ -119,7 +146,7 @@ public:
         this->right = glm::normalize(glm::cross(center, up));
 
         btTransform transform = this->player->getCenterOfMassTransform();
-        transform.setOrigin(btVector3(position.x, position.y - 1.0f, position.z));// -1 because the capsule is lower by 1 then camera
+        transform.setOrigin(btVector3(position.x, position.y - 1.0f, position.z));
         this->player->setWorldTransform(transform);
         this->player->getMotionState()->setWorldTransform(transform);
         this->player->activate();
@@ -136,12 +163,40 @@ public:
         return this;
     }
 
-    PhysicalPlayer(Options *options, GUIRenderable *cursor);
+    PhysicalPlayer(uint32_t worldID, Options *options, GUIRenderable *cursor, const glm::vec3 &position,
+                   const glm::vec3 &lookDirection, Model *attachedModel = nullptr);
 
     ~PhysicalPlayer() {
         delete player;
         delete spring;
     }
+
+    ImGuiResult addImGuiEditorElements(const ImGuiRequest &request);
+
+    void setAttachedModelOffset(const glm::vec3 &attachedModelOffset);
+
+    const glm::vec3& getAttachedModelOffset() const {
+        return attachedModelOffset;
+    }
+
+    void setAttachedModel(Model *attachedModel);
+
+    inline void setAttachedModelTransformation(Model *attachedModel) {
+        if(attachedModel != nullptr) {
+            attachedModel->getTransformation()->setTranslate(GLMConverter::BltToGLM(getRigidBody()->getWorldTransform().getOrigin()) + glm::vec3(0,1,0)  + getLookDirectionQuaternion() * attachedModelOffset);
+        }
+    }
+
+    void processInput(InputHandler &inputHandler) override;
+
+    void interact(LimonAPI *limonAPI, std::vector<LimonAPI::ParameterRequest> &interactionData) override;
+
+    void setDead() override;
+
+    uint32_t getWorldObjectID() const override {
+        return worldID;
+    }
+
 };
 
 

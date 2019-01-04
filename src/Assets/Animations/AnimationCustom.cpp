@@ -8,18 +8,11 @@
 #include <iostream>
 #include "AnimationNode.h"
 
-
-
-Transformation AnimationCustom::calculateTransform(float time) const {
-    Transformation resultTransformation;
-
-    resultTransformation.setScale( animationNode->getScalingVector(time));
-    resultTransformation.setTranslate( animationNode->getPositionVector(time));
-    resultTransformation.setOrientation(animationNode->getRotationQuat(time));
-
-    // there is no default propagation in Transformation
-
-    return resultTransformation;
+bool AnimationCustom::calculateTransform(const std::string& nodeName __attribute((unused)), float time, Transformation& transformation) const {
+    transformation.setScale(animationNode->getScalingVector(time));
+    transformation.setOrientation(animationNode->getRotationQuat(time));
+    transformation.setTranslate(animationNode->getPositionVector(time));
+    return true;
 }
 
 /**

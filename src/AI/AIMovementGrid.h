@@ -22,7 +22,11 @@
 #include "../BulletDebugDrawer.h"
 
 //bigger than sqrt(3)/2
-#define GRID_SNAP_DISTANCE 0.86f
+//avoiding sqrt
+#define GRID_SNAP_DISTANCE (0.8f * 0.8f)
+
+#define X_Z_DISTANCE 0.1
+#define Y_DISTANCE_SQ 0.25
 
 class AIMovementGrid {
 
@@ -37,39 +41,55 @@ class AIMovementGrid {
         }
     };
 
+    bool inline isPositionCloseEnoughYOnly(const glm::vec3 &position1, const glm::vec3 &position2) const {
+        return ((fabs(position1.x - position2.x) < X_Z_DISTANCE) &&
+                (fabs(position1.z - position2.z) < X_Z_DISTANCE) &&
+                (((position1.y - position2.y) * (position1.y - position2.y)) <= Y_DISTANCE_SQ));
+    }
+
     bool inline isPositionCloseEnough(const glm::vec3 &position1, const glm::vec3 &position2) const {
-        return (glm::length(position1 - position2) < GRID_SNAP_DISTANCE);
+        return (glm::length2(position1 - position2) < GRID_SNAP_DISTANCE);
     }
 
     AIMovementNode *root = nullptr;
-    btCollisionShape *ghostShape;
+    btCollisionShape *ghostShape = nullptr;
     btPairCachingGhostObject *sharedGhostObject = new btPairCachingGhostObject();
     btCollisionWorld::ClosestRayResultCallback *rayCallback = new btCollisionWorld::ClosestRayResultCallback(
             btVector3(0, 0, 0), btVector3(0, 0, 0));
     btManifoldArray sharedManifoldArray;
     std::map<int, const AIMovementNode *> actorLastNodeMap;
+    uint32_t nextPossibleIndex = 1;//this is to be used internal and constructor only. Not thread safe
 
-    int isThereCollisionCounter = 0;//this is only meaninful for debug
-    float capsuleHeight = 0.5f;
-    float capsuleRadius = 0.5f;//FIXME these should be configurable
+    int isThereCollisionCounter = 0;//this is only meaningful for debug
+    float capsuleHeight = 1.30f + 0.1f;
+    float capsuleRadius = 0.35f;//FIXME these should be configurable
     bool isThereCollision(btDiscreteDynamicsWorld *staticWorld);
 
+    glm::vec3 max,min;
     std::vector<AIMovementNode *> visited;
+    std::vector<AIMovementNode *> doneNodes;
 
-    AIMovementNode *isAlreadyVisited(const AIMovementNode *node);
+    AIMovementNode *isAlreadyVisited(const glm::vec3 &position, size_t &indexOf);
 
     AIMovementNode *
-    walkMonster(glm::vec3 walkPoint, btDiscreteDynamicsWorld *staticWorld, const glm::vec3 &min, const glm::vec3 &max);
+    walkMonster(glm::vec3 walkPoint, btDiscreteDynamicsWorld *staticWorld, const glm::vec3 &min,
+                    const glm::vec3 &max, uint32_t collisionGroup, uint32_t collisionMask);
 
     const AIMovementNode *
-    aStarPath(const AIMovementNode *start, const glm::vec3 &destination, std::vector<glm::vec3> *route);
+    aStarPath(const AIMovementNode *start, const glm::vec3 &destination, uint32_t maximumNumberOfNodes,
+                  std::vector<glm::vec3> *route);
 
-    std::vector<const AIMovementNode *> calculatedNodes;
+    uint32_t getNextID() {
+        return nextPossibleIndex++;
+    }
+
+    AIMovementGrid() {};//used for deserialize
 
 public:
     static constexpr float floatingHeight = 2.0f;
 
-    AIMovementGrid(glm::vec3 startPoint, btDiscreteDynamicsWorld *staticOnlyPhysicsWorld, glm::vec3 min, glm::vec3 max);
+    AIMovementGrid(glm::vec3 startPoint, btDiscreteDynamicsWorld *staticOnlyPhysicsWorld, glm::vec3 min,
+                       glm::vec3 max, uint32_t collisionGroup, uint32_t collisionMask);
 
     ~AIMovementGrid() {
         delete rayCallback;
@@ -79,16 +99,28 @@ public:
             delete visited[i];
         }
 
+        for (unsigned int i = 0; i < doneNodes.size(); ++i) {
+            delete doneNodes[i];
+        }
+
     }
 
-    bool coursePath(const glm::vec3 &from, const glm::vec3 &to, int actorId, std::vector<glm::vec3> *route);
+    bool coursePath(const glm::vec3 &from, const glm::vec3 &to, uint32_t actorId, uint32_t maximumNumberOfNodes,
+                    std::vector<glm::vec3> *route);
 
-    bool coursePath(const glm::vec3 &from, const glm::vec3 &to, std::vector<glm::vec3> *route);
+    bool coursePath(const glm::vec3 &from, const glm::vec3 &to, uint32_t maximumNumberOfNodes, std::vector<glm::vec3> *route);
 
     void debugDraw(BulletDebugDrawer *debugDrawer) const;
 
     bool setProperHeight(glm::vec3 *position, float floatingHeight, float checkHeight,
                          btDiscreteDynamicsWorld *staticWorld);
+
+    bool serialize(const std::string& fileName);
+
+    static AIMovementGrid* deserialize(const std::string& fileName);
+
+    void
+    serializeNode(tinyxml2::XMLDocument &aiGridDocument, tinyxml2::XMLNode *rootNode, const AIMovementNode *nodeToSerialize) const;
 };
 
 

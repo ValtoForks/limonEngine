@@ -2,7 +2,7 @@
 // Created by engin on 24.03.2018.
 //
 
-#include <tinyxml2.h>
+
 #include <string>
 
 #include "WorldSaver.h"
@@ -10,8 +10,10 @@
 #include "GameObjects/Light.h"
 #include "Assets/Animations/AnimationCustom.h"
 #include "GameObjects/TriggerObject.h"
+#include "GameObjects/ModelGroup.h"
 #include "GUI/GUILayer.h"
 #include "GameObjects/Sound.h"
+#include "GameObjects/Players/PhysicalPlayer.h"
 
 /************************************************************************************
  * Map file spec
@@ -72,9 +74,37 @@ bool WorldSaver::saveWorld(const std::string& mapName, const World* world) {
     currentElement->SetText(mapName.c_str());
     rootNode->InsertEndChild(currentElement);
 
-    currentElement = mapDocument.NewElement("StartingPlayer");
-    currentElement->SetText(world->startingPlayer.toString().c_str());
+    currentElement = mapDocument.NewElement("Player");
+    tinyxml2::XMLElement *playerType = mapDocument.NewElement("Type");
+    playerType->SetText(world->startingPlayer.typeToString().c_str());
+    currentElement->InsertEndChild(playerType);
 
+    tinyxml2::XMLElement *playerPosition = mapDocument.NewElement("Position");
+    serializeVec3(mapDocument, playerPosition, world->startingPlayer.position);
+    currentElement->InsertEndChild(playerPosition);
+
+    tinyxml2::XMLElement *playerOrientation = mapDocument.NewElement("Orientation");
+    serializeVec3(mapDocument, playerOrientation, world->startingPlayer.orientation);
+    currentElement->InsertEndChild(playerOrientation);
+
+    tinyxml2::XMLElement *playerExtension = mapDocument.NewElement("ExtensionName");
+    playerExtension->SetText(world->startingPlayer.extensionName.c_str());
+    currentElement->InsertEndChild(playerExtension);
+
+    tinyxml2::XMLElement *playerAttachement = mapDocument.NewElement("Attachement");
+    if(world->startingPlayer.attachedModel != nullptr) {
+        if(world->physicalPlayer != nullptr) {
+            glm::vec3 attachmentPositionBackup = world->startingPlayer.attachedModel->getTransformation()->getTranslate();
+            world->startingPlayer.attachedModel->getTransformation()->setTranslate(
+                    world->physicalPlayer->getAttachedModelOffset());
+            world->startingPlayer.attachedModel->fillObjects(mapDocument, playerAttachement);
+            world->startingPlayer.attachedModel->getTransformation()->setTranslate(attachmentPositionBackup);
+        } else {
+            //if physical player doesn't exists, but attached model does. This should not happen now, but this line is here as future proofing.
+            world->startingPlayer.attachedModel->fillObjects(mapDocument, playerAttachement);
+        }
+    }
+    currentElement->InsertEndChild(playerAttachement);
     rootNode->InsertEndChild(currentElement);
 
     if(world->music != nullptr) {
@@ -104,6 +134,12 @@ bool WorldSaver::saveWorld(const std::string& mapName, const World* world) {
     //after current element is inserted, we can reuse
     currentElement = mapDocument.NewElement("Objects");
     if(!fillObjects(mapDocument, currentElement, world)) {
+        return false;
+    };
+    rootNode->InsertEndChild(currentElement);//add objects
+
+    currentElement = mapDocument.NewElement("ObjectGroups");
+    if(!fillObjectGroups(mapDocument, currentElement, world)) {
         return false;
     };
     rootNode->InsertEndChild(currentElement);//add objects
@@ -153,15 +189,26 @@ bool WorldSaver::saveWorld(const std::string& mapName, const World* world) {
 
     tinyxml2::XMLError eResult = mapDocument.SaveFile(mapName.c_str());
     if(eResult != tinyxml2::XML_SUCCESS) {
-        std::cout << "ERROR " << eResult << std::endl;
+        std::cerr  << "ERROR " << eResult << std::endl;
     }
 
     return true;
 }
 
+bool WorldSaver::fillObjectGroups(tinyxml2::XMLDocument &document, tinyxml2::XMLElement *objectGroupsNode, const World *world){
+    for(auto it=world->modelGroups.begin(); it != world->modelGroups.end(); it++) {//object ids are not constant, so they can be removed.
+        if((it->second)->getParentObject() == nullptr) { //if part of group, group object serializes
+            (it->second)->fillObjects(document, objectGroupsNode);
+        }
+    }
+    return true;
+}
+
 bool WorldSaver::fillObjects(tinyxml2::XMLDocument& document, tinyxml2::XMLElement * objectsNode, const World* world ) {
     for(auto it=world->objects.begin(); it != world->objects.end(); it++) {//object ids are not constant, so they can be removed.
-        (it->second)->fillObjects(document, objectsNode);
+        if((it->second)->getParentObject() == nullptr) {//if part of group, group object serializes
+            (it->second)->fillObjects(document, objectsNode);
+        }
     }
     return true;
 }
@@ -181,6 +228,10 @@ bool WorldSaver::fillLights(tinyxml2::XMLDocument &document, tinyxml2::XMLElemen
                 currentElement->SetText("POINT");
                 break;
         }
+        lightElement->InsertEndChild(currentElement);
+
+        currentElement = document.NewElement("ID");
+        currentElement->SetText(std::to_string((*it)->getWorldObjectID()).c_str());
         lightElement->InsertEndChild(currentElement);
 
         tinyxml2::XMLElement *parent = document.NewElement("Position");
@@ -206,6 +257,32 @@ bool WorldSaver::fillLights(tinyxml2::XMLDocument &document, tinyxml2::XMLElemen
         parent->InsertEndChild(currentElement);
         currentElement = document.NewElement("B");
         currentElement->SetText(color.b);
+        parent->InsertEndChild(currentElement);
+        lightElement->InsertEndChild(parent);
+
+        parent = document.NewElement("Attenuation");
+        glm::vec3 attenuation = (*it)->getAttenuation();
+        currentElement = document.NewElement("X");
+        currentElement->SetText(attenuation.x);
+        parent->InsertEndChild(currentElement);
+        currentElement = document.NewElement("Y");
+        currentElement->SetText(attenuation.y);
+        parent->InsertEndChild(currentElement);
+        currentElement = document.NewElement("Z");
+        currentElement->SetText(attenuation.z);
+        parent->InsertEndChild(currentElement);
+        lightElement->InsertEndChild(parent);
+
+        parent = document.NewElement("Ambient");
+        glm::vec3 ambientColor = (*it)->getAmbientColor();
+        currentElement = document.NewElement("X");//these are xyz, because they deserialize in standard vec3 way.
+        currentElement->SetText(ambientColor.x);
+        parent->InsertEndChild(currentElement);
+        currentElement = document.NewElement("Y");
+        currentElement->SetText(ambientColor.y);
+        parent->InsertEndChild(currentElement);
+        currentElement = document.NewElement("Z");
+        currentElement->SetText(ambientColor.z);
         parent->InsertEndChild(currentElement);
         lightElement->InsertEndChild(parent);
     }
@@ -319,8 +396,8 @@ bool WorldSaver::fillOnloadAnimations(tinyxml2::XMLDocument &document, tinyxml2:
          * we need only 2 information, model ID and loaded animation ID.
          */
 
-        uint32_t objectID = dynamic_cast<Model*>(world->activeAnimations.at(*it).object)->getWorldObjectID();
-        uint32_t loadedAnimationID = world->activeAnimations.at(*it).animationIndex;
+        uint32_t objectID = dynamic_cast<Model*>(world->activeAnimations.at(*it)->object)->getWorldObjectID();
+        uint32_t loadedAnimationID = world->activeAnimations.at(*it)->animationIndex;
 
         //we need to save parameters, and trigger code
         tinyxml2::XMLElement *onloadActionNode= document.NewElement("OnLoadAnimation");
@@ -339,7 +416,6 @@ bool WorldSaver::fillOnloadAnimations(tinyxml2::XMLDocument &document, tinyxml2:
 
 bool WorldSaver::fillGUILayersAndElements(tinyxml2::XMLDocument &document, tinyxml2::XMLElement *GUILayersListNode,
                                           const World *world) {
-    //for(auto it= world->guiLayers.begin(); it != world->guiLayers.end(); it++) {
     for (size_t i = 0; i < world->guiLayers.size(); ++i) {
         if (!world->guiLayers[i]->serialize(document, GUILayersListNode, world->options)) {
             return false;
@@ -347,3 +423,16 @@ bool WorldSaver::fillGUILayersAndElements(tinyxml2::XMLDocument &document, tinyx
     }
     return true;
 }
+
+void WorldSaver::serializeVec3(tinyxml2::XMLDocument &document, tinyxml2::XMLElement *parentNode, const glm::vec3& vector){
+    tinyxml2::XMLElement *currentElement = document.NewElement("X");
+    currentElement->SetText(vector.x);
+    parentNode->InsertEndChild(currentElement);
+    currentElement = document.NewElement("Y");
+    currentElement->SetText(vector.y);
+    parentNode->InsertEndChild(currentElement);
+    currentElement = document.NewElement("Z");
+    currentElement->SetText(vector.z);
+    parentNode->InsertEndChild(currentElement);
+}
+

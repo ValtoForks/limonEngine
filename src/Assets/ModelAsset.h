@@ -20,50 +20,102 @@
 #include "MeshAsset.h"
 #include "../Utils/GLMConverter.h"
 #include "BoneNode.h"
+#include "Animations/AnimationInterface.h"
 
 
 class AnimationAssimp;
 
 class ModelAsset : public Asset {
+
+    struct BoneInformation {
+        glm::mat4 offset;
+        glm::mat4 parentOffset;
+        glm::mat4 globalMeshInverse;
+    };
+
+    struct AnimationSection {
+        std::string baseAnimationName;
+        std::string animationName;
+        float startTime;
+        float endTime;
+
+        AnimationSection(const std::string &sourceAnimationName, const std::string &animationName,
+                         float startTime, float endTime) : baseAnimationName(
+                sourceAnimationName), animationName(animationName), startTime(startTime), endTime(endTime) {}
+    };
+
     std::string name;
-    std::unordered_map<std::string, AnimationAssimp*> animations;//FIXME these should be removed
-    BoneNode *rootNode;
+    std::unordered_map<std::string, std::shared_ptr<AnimationInterface>> animations;//shared for animation sections
+    std::shared_ptr<BoneNode> rootNode = nullptr;//bones are shared with meshes
     int_fast32_t boneIDCounter, boneIDCounterPerMesh;
 
     glm::vec3 boundingBoxMin;
     glm::vec3 boundingBoxMax;
     glm::vec3 centerOffset;
 
-    std::unordered_map<std::string, Material *> materialMap;
+    std::unordered_map<std::string, std::shared_ptr<Material>> materialMap;//shared with model
     std::vector<btConvexShape *> shapeCopies;
-    std::vector<MeshAsset *> meshes;
-    std::unordered_map<std::string, MeshAsset *> simplifiedMeshes;
-    std::unordered_map<std::string, glm::mat4> meshOffsetmap;
-    glm::mat4 globalInverseTransform;
+    std::vector<std::shared_ptr<MeshAsset>> meshes;
+    std::vector<AnimationSection> animationSections;
+
+    std::unordered_map<std::string, std::shared_ptr<MeshAsset>> simplifiedMeshes;//physics
+    std::unordered_map<std::string, BoneInformation> boneInformationMap;
 
     bool hasAnimation;
+    bool customizationAfterSave = false;
 
-    Material *loadMaterials(const aiScene *scene, unsigned int materialIndex);
+    std::shared_ptr<Material> loadMaterials(const aiScene *scene, unsigned int materialIndex);
 
     void createMeshes(const aiScene *scene, aiNode *aiNode, glm::mat4 parentTransform);//parent transform is not reference on purpose
     //if it was, then we would need a stack
 
-    BoneNode *loadNodeTree(aiNode *aiNode);
+    std::shared_ptr<BoneNode> loadNodeTree(aiNode *aiNode);
 
-    bool findNode(const std::string &nodeName, BoneNode** foundNode, BoneNode* searchRoot) const;
+    bool findNode(const std::string &nodeName, std::shared_ptr<BoneNode>& foundNode, std::shared_ptr<BoneNode> searchRoot) const;
 
-    void traverseAndSetTransform(const BoneNode *boneNode, const glm::mat4 &parentTransform, const AnimationAssimp *animation,
+    void traverseAndSetTransform(std::shared_ptr<const BoneNode> boneNode, const glm::mat4 &parentTransform, std::shared_ptr<const AnimationInterface> animation,
                                  float timeInTicks,
                                  std::vector<glm::mat4> &transforms) const;
 
+    void traverseAndSetTransformBlended(std::shared_ptr<const BoneNode> boneNode, const glm::mat4 &parentTransform,
+                                        std::shared_ptr<const AnimationInterface> animationOld,
+                                        float timeInTicksOld,
+                                        std::shared_ptr<const AnimationInterface> animationNew,
+                                        float timeInTicksNew,
+                                        float blendFactor,
+                                        std::vector<glm::mat4> &transforms) const;
+
     const aiNodeAnim *findNodeAnimation(aiAnimation *pAnimation, std::string basic_string) const;
+
+    void deserializeCustomizations();
+
+    int32_t buildEditorBoneTreeRecursive(std::shared_ptr<BoneNode> boneNode, int32_t selectedBoneNodeID);
+
 
 public:
     ModelAsset(AssetManager *assetManager, uint32_t assetID, const std::vector<std::string> &fileList);
 
+    bool addAnimationAsSubSequence(const std::string &baseAnimationName, const std::string newAnimationName,
+                                   float startTime, float endTime);
+
     bool isAnimated() const;
 
-    void getTransform(long time, std::string animationName, std::vector<glm::mat4> &transformMatrix) const; //this method takes vector to avoid copying it
+    /**
+     * This method is used to request a specific animations transform array for a specific time. If looped is false,
+     * it will return if the given time was after or equals final frame. It interpolates by time automatically.
+     *
+     * @param time Requested animation time in miliseconds.
+     * @param looped if animation should loop or not. Effects return.
+     * @param animationName name of animation to seek.
+     * @param transformMatrix transform matrix list for bones
+     *
+     * @return if last frame of animation is played for not looped animation. Always true for looped ones.
+     */
+    bool getTransform(long time, bool looped, std::string animationName, std::vector<glm::mat4> &transformMatrix) const; //this method takes vector to avoid copying it
+
+    bool getTransformBlended(std::string animationName1, long time1, bool looped1,
+                                         std::string animationName2, long time2, bool looped2,
+                                         float blendFactor, std::vector<glm::mat4> &transformMatrixVector) const;
 
     const glm::vec3 &getBoundingBoxMin() const { return boundingBoxMin; }
 
@@ -74,27 +126,13 @@ public:
     /*
      * FIXME: the materials should be const too
      */
-    const std::unordered_map<std::string, Material *> &getMaterialMap() const { return materialMap; };
+    const std::unordered_map<std::string, std::shared_ptr<Material>> &getMaterialMap() const { return materialMap; };
 
     ~ModelAsset() {
-        std::cout << "Model asset deleted: " << name << std::endl;
-        for (std::vector<MeshAsset *>::iterator iter = meshes.begin(); iter != meshes.end(); ++iter) {
-            delete (*iter);
-        }
-
-        for (auto iter = simplifiedMeshes.begin(); iter != simplifiedMeshes.end(); ++iter) {
-            delete iter->second;
-        }
-
-        for (std::unordered_map<std::string, Material *>::iterator iter = materialMap.begin();
-             iter != materialMap.end(); ++iter) {
-            delete iter->second;
-        }
         //FIXME GPU side is not freed
-
     }
 
-    std::vector<MeshAsset *> getMeshes() const {
+    std::vector<std::shared_ptr<MeshAsset>> getMeshes() const {
         return meshes;
     }
 
@@ -102,12 +140,12 @@ public:
      * This method checks if there is a simplified mesh with same name, and there is, adds simplified one instead of original.
      * @return hybrid of original and simplified meshes
      */
-    std::vector<MeshAsset *> getPhysicsMeshes() const {
+    std::vector<std::shared_ptr<MeshAsset>> getPhysicsMeshes() const {
         if(simplifiedMeshes.size() == 0) {
             return meshes;
         }
 
-        std::vector<MeshAsset *> meshAssets = meshes;//shallow copy
+        std::vector<std::shared_ptr<MeshAsset>> meshAssets = meshes;//shallow copy
         for (unsigned int i = 0; i < meshes.size(); ++i) {
             std::string meshName = "UCX_" + meshes[i]->getName();
             if(simplifiedMeshes.find(meshName) != simplifiedMeshes.end()) {
@@ -117,11 +155,15 @@ public:
         return meshAssets;
     }
 
-    void fillAnimationSet(unsigned int numAnimation, aiAnimation **pAnimations);
+    void fillAnimationSet(unsigned int numAnimation, aiAnimation **pAnimations, const std::string &animationNamePrefix = "");
 
-    const std::unordered_map<std::string, AnimationAssimp*> &getAnimations() const {
+    const std::unordered_map<std::string, std::shared_ptr<AnimationInterface>> &getAnimations() const {
         return animations;
     }
+
+    void serializeCustomizations();
+
+    int32_t buildEditorBoneTree(int32_t selectedBoneNodeID);
 
 };
 

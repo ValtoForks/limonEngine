@@ -3,7 +3,8 @@
 //
 
 #include "Model.h"
-#include "../AI/Actor.h"
+#include "../AI/ActorInterface.h"
+#include <random>
 
 Model::Model(uint32_t objectID, AssetManager *assetManager, const float mass, const std::string &modelFile,
              bool disconnected = false) :
@@ -32,11 +33,11 @@ Model::Model(uint32_t objectID, AssetManager *assetManager, const float mass, co
     std::map<uint_fast32_t, btTransform> btTransformMap;
 
     MeshMeta *meshMeta;
-    std::vector<MeshAsset *> assetMeshes = modelAsset->getMeshes();
+    std::vector<std::shared_ptr<MeshAsset>> assetMeshes = modelAsset->getMeshes();
     static GLSLProgram* animatedProgram = nullptr;
     static GLSLProgram* nonAnimatedProgram = nullptr;
 
-    for (std::vector<MeshAsset *>::iterator iter = assetMeshes.begin(); iter != assetMeshes.end(); ++iter) {
+    for (auto iter = assetMeshes.begin(); iter != assetMeshes.end(); ++iter) {
         meshMeta = new MeshMeta();
         meshMeta->mesh = (*iter);
 
@@ -62,7 +63,7 @@ Model::Model(uint32_t objectID, AssetManager *assetManager, const float mass, co
         meshMetaData.push_back(meshMeta);
     }
 
-    std::vector<MeshAsset *> physicalMeshes = modelAsset->getPhysicsMeshes();
+    std::vector<std::shared_ptr<MeshAsset>> physicalMeshes = modelAsset->getPhysicsMeshes();
 
     for(auto iter = physicalMeshes.begin(); iter != physicalMeshes.end(); ++iter) {
 
@@ -126,9 +127,30 @@ Model::Model(uint32_t objectID, AssetManager *assetManager, const float mass, co
 }
 
 void Model::setupForTime(long time) {
-    if(animated) {
-        animationTime = animationTime + (time - lastSetupTime) * animationTimeScale;
-        modelAsset->getTransform(animationTime, animationName, boneTransforms);
+    if(animated && !animationLastFramePlayed) {
+        //check if we need to blend
+        if(animationBlend) {
+            //we need 2 animation times, and a factor
+            animationTime = animationTime + (time - lastSetupTime) * animationTimeScale;
+
+            animationTimeOld = animationTimeOld + (time - lastSetupTime) * animationTimeScale;
+
+            float blendFactor = std::min(1.0f, (float)animationTime / (float)animationBlendTime);//don't blend after 1.0
+
+            if(blendFactor == 1) {
+                animationBlend = false; // no need to blend anymore.
+            }
+            animationLastFramePlayed = modelAsset->getTransformBlended(animationNameOld, animationTimeOld, animationLoopedOld,
+                                                                       animationName, animationTime, animationLooped,
+                                                                       blendFactor, boneTransforms);
+            //std::cout << "blend " << animationNameOld << " with " << animationName << " for " << blendFactor << " factor" << std::endl;
+        } else {
+            animationTime = animationTime + (time - lastSetupTime) * animationTimeScale;
+            animationLastFramePlayed = modelAsset->getTransform(animationTime, animationLooped, animationName, boneTransforms);
+        }
+
+
+
         btVector3 scale = this->getRigidBody()->getCollisionShape()->getLocalScaling();
         this->getRigidBody()->getCollisionShape()->setLocalScaling(btVector3(1, 1, 1));
         for (unsigned int i = 0; i < boneTransforms.size(); ++i) {
@@ -145,7 +167,7 @@ void Model::setupForTime(long time) {
     lastSetupTime = time;
 }
 
-void Model::activateTexturesOnly(const Material *material) {
+void Model::activateTexturesOnly(std::shared_ptr<const Material>material) {
     if(material->hasDiffuseMap()) {
         glHelper->attachTexture(material->getDiffuseTexture()->getID(), diffuseMapAttachPoint);
     }
@@ -160,6 +182,10 @@ void Model::activateTexturesOnly(const Material *material) {
     if(material->hasOpacityMap()) {
         glHelper->attachTexture(material->getOpacityTexture()->getID(), opacityMapAttachPoint);
     }
+
+    if(material->hasNormalMap()) {
+        glHelper->attachTexture(material->getNormalTexture()->getID(), normalMapAttachPoint);
+    }
 }
 
 void Model::setSamplersAndUBOs(GLSLProgram *program) {
@@ -173,6 +199,9 @@ void Model::setSamplersAndUBOs(GLSLProgram *program) {
         std::cerr << "Uniform \"specularSampler\" could not be set" << std::endl;
     }
     if (!program->setUniform("opacitySampler", opacityMapAttachPoint)) {
+        std::cerr << "Uniform \"opacitySampler\" could not be set" << std::endl;
+    }
+    if (!program->setUniform("normalSampler", normalMapAttachPoint)) {
         std::cerr << "Uniform \"opacitySampler\" could not be set" << std::endl;
     }
     //TODO we should support multi texture on one pass
@@ -200,6 +229,21 @@ bool Model::setupRenderVariables(MeshMeta *meshMetaData) {
 
     if (animated) {
         //set all of the bones to unitTransform for testing
+
+        for (auto boneIterator = exposedBoneTransforms.begin();
+             boneIterator != exposedBoneTransforms.end(); ++boneIterator) {
+                glm::vec3 temp1;//these are not used
+                glm::vec4 temp2;
+                glm::vec3 translate, scale;
+                glm::quat orientation;
+
+                glm::decompose(this->transformation.getWorldTransform() * boneTransforms[boneIterator->first], scale, orientation, translate, temp1, temp2);
+
+                exposedBoneTransforms[boneIterator->first]->setTranslate(translate);
+                exposedBoneTransforms[boneIterator->first]->setScale(scale);
+                exposedBoneTransforms[boneIterator->first]->setOrientation(orientation);
+        }
+
         program->setUniformArray("boneTransformArray[0]", boneTransforms);
     }
     return true;
@@ -290,13 +334,7 @@ void Model::fillObjects(tinyxml2::XMLDocument& document, tinyxml2::XMLElement * 
     }
     objectElement->InsertEndChild(currentElement);
     if(AIActor != nullptr) {
-        currentElement = document.NewElement("AI");
-        currentElement->SetText("True");
-        objectElement->InsertEndChild(currentElement);
-
-        currentElement = document.NewElement("AI_ID");
-        currentElement->SetText(this->AIActor->getWorldID());
-        objectElement->InsertEndChild(currentElement);
+        AIActor->serialize(document, objectElement);
     }
 
     currentElement = document.NewElement("Mass");
@@ -307,13 +345,50 @@ void Model::fillObjects(tinyxml2::XMLDocument& document, tinyxml2::XMLElement * 
     currentElement->SetText(objectID);
     objectElement->InsertEndChild(currentElement);
 
+    if(this->parentObject != nullptr) {
+        GameObject* parent = dynamic_cast<GameObject*>(this->parentObject);
+        if(parent != nullptr) {
+            currentElement = document.NewElement("ParentID");
+            currentElement->SetText(std::to_string(parent->getWorldObjectID()).c_str());
+            objectElement->InsertEndChild(currentElement);
+        }
+        if(parentBoneID != -1) {
+            currentElement = document.NewElement("ParentBoneID");
+            currentElement->SetText(std::to_string(parentBoneID).c_str());
+            objectElement->InsertEndChild(currentElement);
+        }
+    }
+
     if(stepOnSound) {
         currentElement = document.NewElement("StepOnSound");
         currentElement->SetText(stepOnSound->getName().c_str());
         objectElement->InsertEndChild(currentElement);
     }
+    if(!customAnimation) {
+        transformation.serialize(document, objectElement);
+    } else {
+        //if part of custom animation, it means the original position is at the parent. Serialize that
+        const Transformation* parent = transformation.getParentTransform();
+        parent->serialize(document, objectElement);
+    }
 
-    transformation.serialize(document, objectElement);
+    //now handle children
+    if(this->children.size() > 0) {
+        tinyxml2::XMLElement *childrenNode = document.NewElement("Children");
+        tinyxml2::XMLElement *childrenCountNode = document.NewElement("Count");
+        childrenCountNode->SetText(std::to_string(children.size()).c_str());
+        childrenNode->InsertEndChild(childrenCountNode);
+        objectElement->InsertEndChild(childrenNode);
+       for (size_t i = 0; i < children.size(); ++i) {
+           tinyxml2::XMLElement *childNode = document.NewElement("Child");
+           childNode->SetAttribute("Index", (uint32_t)i);
+           PhysicalRenderable* child = children[i];
+           child->fillObjects(document, childNode);
+           childrenNode->InsertEndChild(childNode);
+        }
+    }
+
+    modelAsset->serializeCustomizations();
 }
 
 uint32_t Model::getAIID() {
@@ -324,7 +399,7 @@ uint32_t Model::getAIID() {
 }
 
 GameObject::ImGuiResult Model::addImGuiEditorElements(const ImGuiRequest &request) {
-    static ImGuiResult result;
+    ImGuiResult result;
 
     //Allow transformation editing.
     if(transformation.addImGuiEditorElements(request.perspectiveCameraMatrix, request.perspectiveMatrix)) {
@@ -338,56 +413,87 @@ GameObject::ImGuiResult Model::addImGuiEditorElements(const ImGuiRequest &reques
         if (ImGui::CollapsingHeader("Model animation properties")) {
             if (ImGui::BeginCombo("Animation Name", animationName.c_str())) {
                 for (auto it = modelAsset->getAnimations().begin(); it != modelAsset->getAnimations().end(); it++) {
-                    if (ImGui::Selectable(it->first.c_str())) {
-                        setAnimation(it->first);
+                    bool isThisAnimationCurrent = this->getAnimationName() == it->first;
+                    if (ImGui::Selectable(it->first.c_str(), isThisAnimationCurrent)) {
+                        setAnimation(it->first, true);
+                    }
+                    if (isThisAnimationCurrent) {
+                        ImGui::SetItemDefaultFocus();
                     }
                 }
                 ImGui::EndCombo();
             }
             ImGui::SliderFloat("Animation time scale", &(this->animationTimeScale), 0.01f, 2.0f);
+
+            ImGui::Text("Seperate selected animation by time");
+            static char newAnimationName[256] = {0};
+            static float times[2] = {0};
+            ImGui::InputText("New animation Name", newAnimationName, sizeof(newAnimationName) - 1 );
+            ImGui::InputFloat2("Animation start and end times", times);
+            if(ImGui::Button("CreateSection")){
+                this->modelAsset->addAnimationAsSubSequence(this->animationName, std::string(newAnimationName), times[0], times[1]);
+            }
+
         }
     }
     if (isAnimated()) { //in animated objects can't have AI, can they?
         if (ImGui::CollapsingHeader("AI properties")) {
-            bool isAIDriven = this->AIActor != nullptr;
-            if (ImGui::Checkbox("AI Driven", &isAIDriven)) {
-                if (isAIDriven == true) {
-                    result.addAI = true;
+            if(isAIParametersDirty) {
+                if(this->AIActor != nullptr) {
+                    this->aiParameters = this->AIActor->getParameters();
                 } else {
-                    result.removeAI = true;
+                    this->aiParameters.clear();
                 }
-            } else {
-                result.addAI = false;
-                result.removeAI = false;
-
+                isAIParametersDirty = false;
             }
-            if (this->AIActor != nullptr) {
-                this->AIActor->IMGuiEditorView();
+            result = putAIonGUI(this->AIActor, this->aiParameters, request, lastSelectedAIName);//ATTENTION is somehow user manages to update transform and AI at the same frame, this will override transform.
+            if(result.removeAI || result.addAI) {
+                isAIParametersDirty = true;
             }
         }
     }
-    //Step on sound properties
-
-    ImGui::InputText("Step On Sound", stepOnSoundNameBuffer, 128);
-    if(ImGui::Button("Change Sound")) {
-        if(this->stepOnSound != nullptr) {
-            this->stepOnSound->stop();
+    if (ImGui::CollapsingHeader("Sound properties")) {
+        //Step on sound properties
+        ImGui::InputText("Step On Sound", stepOnSoundNameBuffer, 128);
+        if (ImGui::Button("Change Sound")) {
+            if (this->stepOnSound != nullptr) {
+                this->stepOnSound->stop();
+            }
+            this->stepOnSound = std::make_shared<Sound>(0, assetManager, std::string(stepOnSoundNameBuffer));
+            this->stepOnSound->setLoop(true);
         }
-        this->stepOnSound = std::make_shared<Sound>(0, assetManager, std::string(stepOnSoundNameBuffer));
-        this->stepOnSound->setLoop(true);
+    }
+    if(animated) {
+        if (ImGui::CollapsingHeader("Expose Bone for attachment")) {
+            int32_t newSelectedBoneID = this->modelAsset->buildEditorBoneTree(selectedBoneID);
+            if (newSelectedBoneID != -1 && newSelectedBoneID != selectedBoneID) {
+                selectedBoneID = newSelectedBoneID;
+                std::cout << "selected bone is " << selectedBoneID << std::endl;
+            }
+        } else {
+            selectedBoneID = -1;
+        }
     }
     return result;
 }
 
 Model::~Model() {
+    if(this->parentObject != nullptr) {
+        this->parentObject->removeChild(this);
+    }
     delete rigidBody->getMotionState();
     delete rigidBody;
     delete compoundShape;
     delete AIActor;
 
-    for (unsigned int i = 0; i < meshMetaData.size(); ++i) {
+    for (size_t i = 0; i < meshMetaData.size(); ++i) {
         delete meshMetaData[i];
     }
+
+    for (size_t i = 0; i < children.size(); ++i) {
+        children[i]->setParentObject(nullptr);
+    }
+
     assetManager->freeAsset({name});
 }
 
@@ -405,4 +511,75 @@ Model::Model(const Model &otherModel, uint32_t objectID) :
     this->animationName = otherModel.animationName;
     this->animationTimeScale = otherModel.animationTimeScale;
     this->animationTime = otherModel.animationTime;
+}
+
+GameObject::ImGuiResult Model::putAIonGUI(ActorInterface *actorInterface,
+                                          std::vector<LimonAPI::ParameterRequest> &parameters,
+                                          const ImGuiRequest &request, std::string &lastSelectedAIName) {
+    GameObject::ImGuiResult result;
+    std::string currentAIName;
+    if (actorInterface == nullptr && lastSelectedAIName == "") {
+        currentAIName = "Not selected";
+    } else {
+        if(lastSelectedAIName == "") {
+            currentAIName = actorInterface->getName();
+        } else {
+            currentAIName = lastSelectedAIName;
+        }
+    }
+    //let user select what kind of Actor required
+    std::vector<std::string> actorNames = ActorInterface::getActorNames();
+
+    if (ImGui::BeginCombo("Actor type##AI", currentAIName.c_str())) {
+        for (auto it = actorNames.begin(); it != actorNames.end(); it++) {
+            bool isThisActorSelected = (lastSelectedAIName == *it);
+            if (ImGui::Selectable(it->c_str(), isThisActorSelected)) {
+                if (!isThisActorSelected) {//if this is not the previously selected Actor type
+                    lastSelectedAIName = *it;
+                }
+            }
+            if(isThisActorSelected) {
+                ImGui::SetItemDefaultFocus();
+            }
+
+        }
+        ImGui::EndCombo();
+    }
+    if (actorInterface != nullptr) {
+        if(actorInterface->getName() != lastSelectedAIName) {
+            if(ImGui::Button("Change Actor type##AI")) {
+                result.addAI = true;
+                result.removeAI = true;
+                result.actorTypeName = lastSelectedAIName;
+            }
+
+        } else {//if actor is set, and not modified
+            bool isSet = request.limonAPI->generateEditorElementsForParameters(parameters, 0);
+            if(isSet) {
+                if(ImGui::Button("Apply changes##AI")) {
+                    actorInterface->setParameters(parameters);
+
+                }
+            }
+        }
+        ImGui::SameLine();
+        if(ImGui::Button("Remove AI##AI")) {
+            result.removeAI = true;
+        }
+    } else {//if no actor is set
+        if(lastSelectedAIName != "") {
+            if(ImGui::Button("Add AI##AI")) {
+                result.addAI = true;
+                result.actorTypeName = lastSelectedAIName;
+            }
+        }
+    }
+
+    return result;
+}
+
+void Model::attachAI(ActorInterface *AIActor) {
+    //after this, clearing the AI is job of the model.
+    this->AIActor = AIActor;
+    lastSelectedAIName = AIActor->getName();
 }

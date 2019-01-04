@@ -11,19 +11,19 @@
 #include <vector>
 #include <unordered_map>
 #include <tinyxml2.h>
+#include "AnimationInterface.h"
 
 class AnimationNode;
 
-class AnimationAssimp {
+class AnimationAssimp : public AnimationInterface {
     float ticksPerSecond;
     float duration;
     //This map keeps the animations for node(bone)
     std::unordered_map<std::string, AnimationNode*> nodes;
-
 public:
     AnimationAssimp(aiAnimation *assimpAnimation);
 
-    glm::mat4 calculateTransform(const std::string& nodeName, float time, bool &isFound) const;
+    bool calculateTransform(const std::string& nodeName, float time, Transformation& transformation) const;
 
     float getTicksPerSecond() const {
         return ticksPerSecond;

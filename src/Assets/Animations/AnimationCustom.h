@@ -8,8 +8,9 @@
 
 #include "AnimationNode.h"
 #include "../../Transformation.h"
+#include "AnimationInterface.h"
 
-class AnimationCustom {
+class AnimationCustom : public AnimationInterface {
     friend class AnimationLoader;
     friend struct AnimationSequenceInterface;
 
@@ -39,7 +40,7 @@ public:
         this->animationNode = new AnimationNode(*(otherAnimation.animationNode));//default copy constructor used
     }
 
-    Transformation calculateTransform(float time) const;
+    bool calculateTransform(const std::string& nodeName __attribute((unused)), float time __attribute((unused)), Transformation& transformation) const;
 
     float getTicksPerSecond() const {
         return ticksPerSecond;

@@ -8,6 +8,7 @@
 #include <string>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include "../GamePlay/LimonAPI.h"
 
 /**
  * This class is used to provide a polymorphic way of determining type and name of the object.
@@ -22,6 +23,7 @@ public:
         bool removeAI = false;
         bool updated = false;
         bool remove = false; //If removal requested
+        std::string actorTypeName;
     };
 
     struct ImGuiRequest {
@@ -33,19 +35,23 @@ public:
         const uint32_t& screenHeight;
         const uint32_t& screenWidth;
 
+        LimonAPI* limonAPI = nullptr;
+
         ImGuiRequest(const glm::mat4 &perspectiveCameraMatrix, const glm::mat4 &perspectiveMatrix,
-                     const glm::mat4 &ortogonalMatrix, const uint32_t &screenHeight, const uint32_t &screenWidth)
+                     const glm::mat4 &ortogonalMatrix, const uint32_t &screenHeight, const uint32_t &screenWidth, LimonAPI* limonAPI)
                 : perspectiveCameraMatrix(perspectiveCameraMatrix), perspectiveMatrix(perspectiveMatrix),
-                  ortogonalMatrix(ortogonalMatrix), screenHeight(screenHeight), screenWidth(screenWidth) {}
+                  ortogonalMatrix(ortogonalMatrix), screenHeight(screenHeight), screenWidth(screenWidth), limonAPI(limonAPI) {}
     };
 
-    enum ObjectTypes { PLAYER, LIGHT, MODEL, SKYBOX, TRIGGER, GUI_TEXT, GUI_IMAGE, GUI_BUTTON, SOUND };
+    enum ObjectTypes { PLAYER, LIGHT, MODEL, SKYBOX, TRIGGER, GUI_TEXT, GUI_IMAGE, GUI_BUTTON, GUI_ANIMATION, SOUND, MODEL_GROUP };
 
     virtual ObjectTypes getTypeID() const = 0;
     virtual std::string getName() const = 0;
     virtual ImGuiResult addImGuiEditorElements(const ImGuiRequest &request __attribute((unused))) {ImGuiResult imGuiResult; return imGuiResult;};
 
-    virtual uint32_t getWorldObjectID() = 0;
+    virtual void interact(LimonAPI *limonAPI __attribute((unused)), std::vector<LimonAPI::ParameterRequest> &interactionData __attribute((unused))) {};
+
+    virtual uint32_t getWorldObjectID() const = 0;
     virtual ~GameObject() {};
 };
 

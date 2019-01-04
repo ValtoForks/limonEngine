@@ -3,6 +3,8 @@ project(LimonEngine)
 
 set(PROJECT_VERSION 0.6)
 add_definitions(-DGLM_ENABLE_EXPERIMENTAL)
+add_definitions(-DGLM_FORCE_SILENT_WARNINGS)
+add_definitions(-DASSIMP_VALIDATE_WORKAROUND)
 
 #set(CMAKE_VERBOSE_MAKEFILE ON)
 
@@ -17,7 +19,7 @@ ENDIF()
 
 include(libs/CmakeLists.txt)
 
-set(SOURCE_FILES src/Utils/Logger.cpp src/Utils/Logger.h src/ImGuiHelper.cpp src/ImGuiHelper.h src/main.cpp src/SDL2Helper.cpp src/SDL2Helper.h src/GLHelper.cpp src/GLHelper.h src/GameObjects/Model.cpp src/GameObjects/Model.h src/World.cpp src/World.h src/InputHandler.cpp src/InputHandler.h src/Camera.cpp src/Camera.h src/GameObjects/SkyBox.cpp src/GameObjects/SkyBox.h src/Assets/TextureAsset.cpp src/Assets/TextureAsset.h src/Assets/CubeMapAsset.cpp src/Assets/CubeMapAsset.h src/GLSLProgram.cpp src/GLSLProgram.h src/Renderable.h src/Utils/GLMConverter.cpp src/Utils/GLMConverter.h src/BulletDebugDrawer.cpp src/BulletDebugDrawer.h src/GUI/GUITextBase.cpp src/GUI/GUITextBase.h src/GUI/GUILayer.cpp src/GUI/GUILayer.h src/PhysicalRenderable.cpp src/PhysicalRenderable.h src/GUI/GUIRenderable.cpp src/GUI/GUIRenderable.h src/FontManager.cpp src/FontManager.h src/GUI/GUIFPSCounter.cpp src/GUI/GUIFPSCounter.h src/Utils/AssimpUtils.cpp src/Utils/AssimpUtils.h src/GameObjects/Light.cpp src/GameObjects/Light.h src/Material.cpp src/Material.h src/Assets/AssetManager.cpp src/Assets/AssetManager.h src/Assets/Asset.cpp src/Assets/Asset.h src/Assets/ModelAsset.cpp src/Assets/ModelAsset.h src/Assets/MeshAsset.cpp src/Assets/MeshAsset.h src/Assets/BoneNode.cpp src/Assets/BoneNode.h src/Utils/GLMUtils.h src/Options.h src/GUI/GUITextDynamic.cpp src/GUI/GUITextDynamic.h src/AI/Actor.cpp src/AI/Actor.h src/AI/HumanEnemy.h src/AI/AIMovementGrid.cpp src/GameObjects/Players/PhysicalPlayer.cpp src/GameObjects/Players/PhysicalPlayer.h src/CameraAttachment.h src/GameObjects/Players/FreeMovingPlayer.cpp src/GameObjects/Players/FreeMovingPlayer.h src/GameObjects/Players/FreeCursorPlayer.cpp src/GameObjects/Players/FreeCursorPlayer.cpp src/GameObjects/Players/Player.h src/GameObjects/GameObject.h src/WorldLoader.cpp src/WorldLoader.h src/WorldSaver.cpp src/WorldSaver.h src/GameObjects/TriggerObject.cpp src/GameObjects/TriggerObject.h src/Transformation.cpp src/Assets/Animations/AnimationAssimp.h src/Assets/Animations/AnimationAssimp.cpp src/Assets/Animations/AnimationLoader.h src/Assets/Animations/AnimationLoader.cpp src/Assets/Animations/AnimationNode.cpp src/Assets/Animations/AnimationNode.h src/Assets/Animations/AnimationCustom.cpp src/Assets/Animations/AnimationCustom.h src/GamePlay/LimonAPI.h src/GamePlay/LimonAPI.cpp src/GamePlay/TriggerInterface.h src/GamePlay/AnimateOnTrigger.cpp src/GamePlay/AnimateOnTrigger.h src/GamePlay/AddGuiTextOnTrigger.cpp src/GamePlay/AddGuiTextOnTrigger.h src/GamePlay/TriggerInterface.cpp src/GamePlay/RemoveGuiTextOnTrigger.h src/GamePlay/RemoveGuiTextOnTrigger.cpp src/AnimationSequencer.cpp src/AnimationSequencer.h src/GUI/GUICursor.cpp src/GUI/GUICursor.h src/GameObjects/GUIText.cpp src/GameObjects/GUIText.h src/Options.cpp src/ALHelper.cpp src/ALHelper.h src/Assets/SoundAsset.cpp src/Assets/SoundAsset.h src/GameObjects/Sound.cpp src/GameObjects/Sound.h src/GamePlay/AddSoundToObject.cpp src/GamePlay/AddSoundToObject.h src/GUI/GUIImageBase.cpp src/GUI/GUIImageBase.h src/GameObjects/GUIImage.cpp src/GameObjects/GUIImage.h src/GameObjects/GUIButton.cpp src/GameObjects/GUIButton.h src/GameObjects/Players/MenuPlayer.cpp src/GameObjects/Players/MenuPlayer.h src/main.h src/GamePlay/ChangeWorldOnTrigger.cpp src/GamePlay/ChangeWorldOnTrigger.h src/GamePlay/QuitGameOnTrigger.cpp src/GamePlay/QuitGameOnTrigger.h src/GamePlay/ReturnPreviousWorldOnTrigger.cpp src/GamePlay/ReturnPreviousWorldOnTrigger.h)
+set(SOURCE_FILES src/Utils/Logger.cpp src/Utils/Logger.h src/ImGuiHelper.cpp src/ImGuiHelper.h src/main.cpp src/SDL2Helper.cpp src/SDL2Helper.h src/GLHelper.cpp src/GLHelper.h src/GameObjects/Model.cpp src/GameObjects/Model.h src/World.cpp src/World.h src/InputHandler.cpp src/InputHandler.h src/Camera.cpp src/Camera.h src/GameObjects/SkyBox.cpp src/GameObjects/SkyBox.h src/Assets/TextureAsset.cpp src/Assets/TextureAsset.h src/Assets/CubeMapAsset.cpp src/Assets/CubeMapAsset.h src/GLSLProgram.cpp src/GLSLProgram.h src/Renderable.h src/Utils/GLMConverter.cpp src/Utils/GLMConverter.h src/BulletDebugDrawer.cpp src/BulletDebugDrawer.h src/GUI/GUITextBase.cpp src/GUI/GUITextBase.h src/GUI/GUILayer.cpp src/GUI/GUILayer.h src/PhysicalRenderable.cpp src/PhysicalRenderable.h src/GUI/GUIRenderable.cpp src/GUI/GUIRenderable.h src/FontManager.cpp src/FontManager.h src/GUI/GUIFPSCounter.cpp src/GUI/GUIFPSCounter.h src/Utils/AssimpUtils.cpp src/Utils/AssimpUtils.h src/GameObjects/Light.cpp src/GameObjects/Light.h src/Material.cpp src/Material.h src/Assets/AssetManager.cpp src/Assets/AssetManager.h src/Assets/Asset.cpp src/Assets/Asset.h src/Assets/ModelAsset.cpp src/Assets/ModelAsset.h src/Assets/MeshAsset.cpp src/Assets/MeshAsset.h src/Assets/BoneNode.cpp src/Assets/BoneNode.h src/Utils/GLMUtils.h src/Options.h src/GUI/GUITextDynamic.cpp src/GUI/GUITextDynamic.h src/AI/ActorInterface.cpp src/AI/AIMovementGrid.cpp src/GameObjects/Players/PhysicalPlayer.cpp src/GameObjects/Players/PhysicalPlayer.h src/CameraAttachment.h src/GameObjects/Players/FreeMovingPlayer.cpp src/GameObjects/Players/FreeMovingPlayer.h src/GameObjects/Players/FreeCursorPlayer.cpp src/GameObjects/Players/FreeCursorPlayer.cpp src/GameObjects/Players/Player.h src/GameObjects/GameObject.h src/WorldLoader.cpp src/WorldLoader.h src/WorldSaver.cpp src/WorldSaver.h src/GameObjects/TriggerObject.cpp src/GameObjects/TriggerObject.h src/Transformation.cpp src/Assets/Animations/AnimationAssimp.h src/Assets/Animations/AnimationAssimp.cpp src/Assets/Animations/AnimationLoader.h src/Assets/Animations/AnimationLoader.cpp src/Assets/Animations/AnimationNode.cpp src/Assets/Animations/AnimationNode.h src/Assets/Animations/AnimationCustom.cpp src/Assets/Animations/AnimationCustom.h src/GamePlay/LimonAPI.h src/GamePlay/LimonAPI.cpp src/GamePlay/TriggerInterface.h src/GamePlay/AnimateOnTrigger.cpp src/GamePlay/AnimateOnTrigger.h src/GamePlay/AddGuiTextOnTrigger.cpp src/GamePlay/AddGuiTextOnTrigger.h src/GamePlay/TriggerInterface.cpp src/GamePlay/RemoveGuiTextOnTrigger.h src/GamePlay/RemoveGuiTextOnTrigger.cpp src/AnimationSequencer.cpp src/AnimationSequencer.h src/GUI/GUICursor.cpp src/GUI/GUICursor.h src/GameObjects/GUIText.cpp src/GameObjects/GUIText.h src/Options.cpp src/ALHelper.cpp src/ALHelper.h src/Assets/SoundAsset.cpp src/Assets/SoundAsset.h src/GameObjects/Sound.cpp src/GameObjects/Sound.h src/GamePlay/AddSoundToObject.cpp src/GamePlay/AddSoundToObject.h src/GUI/GUIImageBase.cpp src/GUI/GUIImageBase.h src/GameObjects/GUIImage.cpp src/GameObjects/GUIImage.h src/GameObjects/GUIButton.cpp src/GameObjects/GUIButton.h src/GameObjects/Players/MenuPlayer.cpp src/GameObjects/Players/MenuPlayer.h src/main.h src/GamePlay/ChangeWorldOnTrigger.cpp src/GamePlay/ChangeWorldOnTrigger.h src/GamePlay/QuitGameOnTrigger.cpp src/GamePlay/QuitGameOnTrigger.h src/GamePlay/ReturnPreviousWorldOnTrigger.cpp src/GamePlay/ReturnPreviousWorldOnTrigger.h src/Assets/Animations/AnimationAssimpSection.cpp src/GameObjects/GUIAnimation.cpp src/GameObjects/GUIAnimation.h src/GamePlay/PlayerExtensionInterface.cpp src/GameObjects/ModelGroup.cpp src/GameObjects/ModelGroup.h src/PostProcess/QuadRenderBase.cpp src/PostProcess/QuadRenderBase.h src/PostProcess/CombinePostProcess.h src/PostProcess/CombinePostProcess.cpp src/PostProcess/SSAOPostProcess.cpp src/PostProcess/SSAOPostProcess.h src/PostProcess/SSAOBlurPostProcess.cpp src/PostProcess/SSAOBlurPostProcess.h)
 
 add_executable(LimonEngine ${SOURCE_FILES})
 
@@ -61,7 +63,7 @@ if (NOT OPENGL_FOUND)
 endif (NOT OPENGL_FOUND)
 
 find_package(Bullet REQUIRED)
-INCLUDE_DIRECTORIES(${BULLET_INCLUDE_DIRS})
+INCLUDE_DIRECTORIES(SYSTEM ${BULLET_INCLUDE_DIRS})
 
 if (NOT BULLET_FOUND)
     message(ERROR " Bullet not found!")
@@ -71,7 +73,7 @@ find_package(glm REQUIRED)
 if (NOT glm_FOUND)
     message(ERROR " GLM not found!")
 endif (NOT glm_FOUND)
-INCLUDE_DIRECTORIES(${GLM_INCLUDE_DIRS})
+INCLUDE_DIRECTORIES(SYSTEM ${GLM_INCLUDE_DIRS})
 
 find_package(assimp REQUIRED)
 if (NOT assimp_FOUND)
@@ -92,11 +94,23 @@ IF (WIN32)
     SET_TARGET_PROPERTIES(LimonEngine PROPERTIES LINK_FLAGS ${LimonEngine_LINKFLAGS} )
 ENDIF()
 
-add_library(customTriggers SHARED src/GamePlay/TriggerInterface.cpp src/GamePlay/LimonAPI.cpp src/GamePlay/CoinPickUpOnTrigger.cpp src/GamePlay/UpdateGuiTextOnTrigger.cpp src/GamePlay/MayanCoinPickup.cpp src/GamePlay/MayanLever.cpp)
+add_library(customTriggers SHARED src/GamePlay/TriggerInterface.cpp
+        src/GamePlay/PlayerExtensionInterface.cpp
+        src/AI/ActorInterface.cpp
+        src/GamePlay/LimonAPI.cpp
+        src/GamePlay/CoinPickUpOnTrigger.cpp
+        src/GamePlay/UpdateGuiTextOnTrigger.cpp
+        src/GamePlay/MayanCoinPickup.cpp
+        src/GamePlay/MayanLever.cpp
+        src/GamePlay/ShooterPlayerExtension.cpp
+        src/AI/ActorInterface.h
+        src/AI/HumanEnemy.cpp
+        src/GamePlay/Samples/CowboyShooterExtension.cpp
+        src/GamePlay/Samples/CowboyEnemyAI.cpp)
 
 TARGET_LINK_LIBRARIES(customTriggers ${TinyXML2_LIBRARIES})
 
 set_target_properties(customTriggers PROPERTIES VERSION ${PROJECT_VERSION})
 set_target_properties(customTriggers PROPERTIES SOVERSION 1)
 
-cotire(LimonEngine)
+#cotire(LimonEngine)

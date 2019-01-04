@@ -19,17 +19,22 @@ layout (std140) uniform PlayerTransformBlock {
     mat4 camera;
     mat4 projection;
     mat4 cameraProjection;
+    mat4 inverseProjection;
+	mat4 inverseCamera;
     vec3 position;
+	vec3 cameraSpacePosition;
+    vec2 noiseScale;
 } playerTransforms;
 
-struct LightSource
-{
+struct LightSource {
     mat4 shadowMatrices[6];
     mat4 lightSpaceMatrix;
     vec3 position;
     float farPlanePoint;
     vec3 color;
     int type; //1 Directional, 2 point
+	vec3 attenuation;
+	vec3 ambient;
 };
 
 layout (std140) uniform ModelInformationBlock {

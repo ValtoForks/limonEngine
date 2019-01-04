@@ -31,7 +31,7 @@ class MeshAsset {
 
     std::map<uint_fast32_t, std::vector<uint_fast32_t >> boneAttachedMeshes;
 
-    const BoneNode *skeleton;
+    std::shared_ptr<const BoneNode> skeleton;
     std::map<std::string, uint_fast32_t> boneIdMap;
 
     bool bones;
@@ -40,7 +40,7 @@ class MeshAsset {
     std::vector<glm::lowp_uvec4> boneIDs;
     std::vector<glm::vec4> boneWeights;
 
-    const Material *material;
+    std::shared_ptr<const Material> material;
     const glm::mat4 parentTransform;
     const bool isPartOfAnimated;
 
@@ -53,8 +53,9 @@ class MeshAsset {
 
 public:
     MeshAsset(AssetManager *assetManager, const aiMesh *currentMesh, std::string name,
-                  const Material *material, const BoneNode *meshSkeleton, const glm::mat4 &parentTransform,
-                  const bool isPartOfAnimated);
+              std::shared_ptr<const Material> material, std::shared_ptr<const BoneNode> meshSkeleton,
+              const glm::mat4 &parentTransform,
+              const bool isPartOfAnimated);
 
     uint_fast32_t getTriangleCount() const { return triangleCount; }
 
@@ -67,7 +68,7 @@ public:
 
     bool addWeightToVertex(uint_fast32_t boneID, unsigned int vertex, float weight);
 
-    const Material *getMaterial() const {
+    std::shared_ptr<const Material> getMaterial() const {
         return material;
     }
 
@@ -78,9 +79,11 @@ public:
             delete shapeCopies[i];
         }
 
+        //FIXME buffer objects are not freed!
+
     }
 
-    void fillBoneMap(const BoneNode *boneNode);
+    void fillBoneMap(std::shared_ptr<const BoneNode> boneNode);
 
     std::string getName() {
         return name;

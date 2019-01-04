@@ -21,7 +21,7 @@ private:
 
     glm::vec3 walkSpeed = glm::vec3(8, 0, 8);
     glm::vec3 runSpeed = glm::vec3(12, 0, 12);
-    glm::vec3& moveSpeed = walkSpeed;
+    glm::vec3 moveSpeed = walkSpeed;
     glm::vec3 freeMovementSpeed = glm::vec3(0.1f,0.1f,0.1f);
     float jumpFactor = 7.0f;
     float lookAroundSpeed = -6.5f;
@@ -48,6 +48,11 @@ private:
     int windowWidth, windowHeight;
     bool isWindowInFocus;
     TextureFilteringModes currentTextureFilteringMode = TextureFilteringModes::TRILINEAR;
+
+    bool fullScreen = false;
+
+    uint32_t ssaoSampleCount = 9;
+    bool ssaoEnabled = false;
 
     void loadVec3(tinyxml2::XMLNode *optionsNode, const std::string &name, glm::vec3&);
     void loadVec4(tinyxml2::XMLNode *optionsNode, const std::string &name, glm::vec4&);
@@ -224,6 +229,30 @@ public:
 
     TextureFilteringModes getTextureFiltering() {
         return currentTextureFilteringMode;
+    }
+
+    bool isFullScreen() const {
+        return fullScreen;
+    }
+
+    void setFullScreen(bool isFullScreen) {
+        this->fullScreen = isFullScreen;
+    }
+
+    uint32_t getSSAOSampleCount() const {
+        return ssaoSampleCount;
+    }
+
+    void setSSAOSampleCount(uint32_t sampleCount) {
+        ssaoSampleCount = sampleCount;
+    }
+
+    bool isSsaoEnabled() const {
+        return ssaoEnabled;
+    }
+
+    void setSsaoEnabled(bool ssaoEnabled) {
+        this->ssaoEnabled = ssaoEnabled;
     }
 };
 

@@ -6,13 +6,17 @@
 #define LIMONENGINE_PLAYER_H
 
 #include "../GameObject.h"
+#include "../../InputHandler.h"
+#include "../../GamePlay/LimonAPI.h"
 #include <glm/glm.hpp>
 #include <string>
 #include <iostream>
+#include "../../GamePlay/PlayerExtensionInterface.h"
 
 class btDiscreteDynamicsWorld;
 class GUIRenderable;
 class CameraAttachment;
+
 
 class Player : public GameObject {
 public:
@@ -27,14 +31,18 @@ public:
         bool menuInteraction  = false;
     };
 protected:
-    GUIRenderable* cursor;
+    GUIRenderable* cursor = nullptr;
     WorldSettings worldSettings;
+    Options *options = nullptr;
+    PlayerExtensionInterface* playerExtension = nullptr;
+    bool dead = false;
 public:
     enum moveDirections {
         NONE, FORWARD, BACKWARD, LEFT, RIGHT, LEFT_FORWARD, RIGHT_FORWARD, LEFT_BACKWARD, RIGHT_BACKWARD, UP
     };
 
-    Player(GUIRenderable* cursor) : cursor(cursor){};
+    Player(GUIRenderable *cursor, Options *options, const glm::vec3 &position __attribute((unused)), const glm::vec3 &lookDirection __attribute((unused)))
+            : cursor(cursor), options(options){};
 
     virtual ~Player() {}
 
@@ -68,10 +76,11 @@ public:
     virtual CameraAttachment* getCameraAttachment() = 0;
 
     /************Game Object methods **************/
-    uint32_t getWorldObjectID() {
+    virtual uint32_t getWorldObjectID() const override {
         std::cerr << "Player doesn't have a world object ID, it shouldn't have been needed." << std::endl;
         return 0;
     }
+
     ObjectTypes getTypeID() const {
         return GameObject::PLAYER;
     };
@@ -81,6 +90,73 @@ public:
     };
 
     /************Game Object methods **************/
+    virtual void processInput(InputHandler &inputHandler) {
+
+        float xPosition, yPosition, xChange, yChange;
+        if (inputHandler.getMouseChange(xPosition, yPosition, xChange, yChange)) {
+            rotate(xPosition, yPosition, xChange, yChange);
+        }
+
+        if (inputHandler.getInputEvents(inputHandler.RUN)) {
+            if(inputHandler.getInputStatus(inputHandler.RUN)) {
+                options->setMoveSpeed(Options::RUN);
+            } else {
+                options->setMoveSpeed(Options::WALK);
+            }
+        }
+
+        Player::moveDirections direction = Player::NONE;
+        //ignore if both are pressed.
+        if (inputHandler.getInputStatus(inputHandler.MOVE_FORWARD) !=
+            inputHandler.getInputStatus(inputHandler.MOVE_BACKWARD)) {
+            if (inputHandler.getInputStatus(inputHandler.MOVE_FORWARD)) {
+                direction = Player::FORWARD;
+            } else {
+                direction = Player::BACKWARD;
+            }
+        }
+        if (inputHandler.getInputStatus(inputHandler.MOVE_LEFT) != inputHandler.getInputStatus(inputHandler.MOVE_RIGHT)) {
+            if (inputHandler.getInputStatus(inputHandler.MOVE_LEFT)) {
+                if (direction == Player::FORWARD) {
+                    direction = Player::LEFT_FORWARD;
+                } else if (direction == Player::BACKWARD) {
+                    direction = Player::LEFT_BACKWARD;
+                } else {
+                    direction = Player::LEFT;
+                }
+            } else if (direction == Player::FORWARD) {
+                direction = Player::RIGHT_FORWARD;
+            } else if (direction == Player::BACKWARD) {
+                direction = Player::RIGHT_BACKWARD;
+            } else {
+                direction = Player::RIGHT;
+            }
+        }
+
+        if (inputHandler.getInputStatus(inputHandler.JUMP) && inputHandler.getInputEvents(inputHandler.JUMP)) {
+            direction = Player::UP;
+        }
+
+        //if none, camera should handle how to get slower.
+        move(direction);
+
+    }
+
+    PlayerExtensionInterface *getPlayerExtension() const {
+        return playerExtension;
+    }
+
+    void setPlayerExtension(PlayerExtensionInterface *playerExtension) {
+        delete this->playerExtension;
+        this->playerExtension = playerExtension;
+    }
+
+    virtual void setDead() {};
+
+    bool isDead() {
+        return dead;
+    }
+
 };
 
 

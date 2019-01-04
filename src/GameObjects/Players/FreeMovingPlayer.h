@@ -15,7 +15,6 @@
 class Options;
 
 class FreeMovingPlayer : public Player, public CameraAttachment {
-    Options* options;
     bool dirty;
     glm::vec3 position;
     glm::vec3 center;
@@ -24,7 +23,8 @@ class FreeMovingPlayer : public Player, public CameraAttachment {
     glm::quat view;
 public:
 
-    FreeMovingPlayer(Options* options, GUIRenderable* cursor);
+    FreeMovingPlayer(Options* options, GUIRenderable* cursor, const glm::vec3 &position,
+                     const glm::vec3 &lookDirection);
 
     bool isDirty() {
         return dirty;

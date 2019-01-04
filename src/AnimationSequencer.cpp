@@ -14,7 +14,11 @@ AnimationSequenceInterface::AnimationSequenceInterface(PhysicalRenderable* anima
 
 AnimationSequenceInterface::~AnimationSequenceInterface(){
     //put object back to original position
-    (*animatingObject->getTransformation()) = originalTransformation;
+    if(animatingObject != nullptr) { //if cancelled or finalized, this is already done, and animating object is null
+        animatingObject->getTransformation()->setTranslate(originalTransformation.getTranslate());
+        animatingObject->getTransformation()->setScale(originalTransformation.getScale());
+        animatingObject->getTransformation()->setOrientation(originalTransformation.getOrientation());
+    }
 }
 
 void AnimationSequenceInterface::Duplicate(int index) {
@@ -57,7 +61,7 @@ void AnimationSequenceInterface::setTransform(int32_t indexToSet) {
     }
     glm::vec3 translate, scale;
     glm::quat rotation;
-    originalTransformation.getDifference(*animatingObject->getTransformation(), translate, scale, rotation);
+    originalTransformation.getDifferenceAddition(*animatingObject->getTransformation(), translate, scale, rotation);
     AnimationSequenceInterface::AnimationSequenceItem &item = sections[indexToSet];
     item.transformation.setTransformationsNotPropagate(translate,rotation,scale);
 }
@@ -139,8 +143,10 @@ AnimationCustom* AnimationSequenceInterface::buildAnimationFromCurrentItems() {
                     itemIndex++;
                 }
             }
-            Transformation totalTr = animationBase->calculateTransform(time);
-            Transformation animTr = itemsAnimation->calculateTransform(time);
+            Transformation totalTr;
+            Transformation animTr;
+            animationBase->calculateTransform("", time, totalTr);
+            itemsAnimation->calculateTransform("", time, animTr);
             totalTr.combine(animTr);
             pushTransformToAnimationTime(animationInProgress->animationNode, time, totalTr);
         }
@@ -148,22 +154,23 @@ AnimationCustom* AnimationSequenceInterface::buildAnimationFromCurrentItems() {
         AnimationCustom* longerAnimation;
         Transformation shortAnimationLastTr;
         uint32_t longerStartIndex;
+
         if(itemsAnimation->getDuration() > animationBase->getDuration()) {
             longerAnimation = itemsAnimation;
-            shortAnimationLastTr = animationBase->calculateTransform(animationBase->getDuration());
+            animationBase->calculateTransform("", animationBase->getDuration(), shortAnimationLastTr);
             longerStartIndex = itemIndex;
         } else {
             longerAnimation = animationBase;
-            shortAnimationLastTr = itemsAnimation->calculateTransform(itemsAnimation->getDuration());
+            itemsAnimation->calculateTransform("", itemsAnimation->getDuration(), shortAnimationLastTr);
             longerStartIndex = baseIndex;
         }
         for (size_t j = longerStartIndex; j < longerAnimation->animationNode->rotationTimes.size(); ++j) {
             float time = longerAnimation->animationNode->rotationTimes[j];
-            Transformation longerTr = longerAnimation->calculateTransform(time);
+            Transformation longerTr;
+            longerAnimation->calculateTransform("", time, longerTr);
             longerTr.combine(shortAnimationLastTr);
             pushTransformToAnimationTime(animationInProgress->animationNode, time, longerTr);
         }
-
 
         maxDuration = std::max(maxDuration, item.mFrameEnd);
         animationInProgress->duration = maxDuration;
@@ -189,7 +196,7 @@ void AnimationSequenceInterface::fillAnimationFromItem(uint32_t itemIndex, Anima
 
     glm::vec3 translate, scale;
     glm::quat rotation;
-    sourceTransform.getDifference(item.transformation, translate, scale, rotation);
+    sourceTransform.getDifferenceStacked(item.transformation, translate, scale, rotation);
 
     Transformation difference;
     difference.setTransformationsNotPropagate(translate,rotation,scale);
@@ -246,11 +253,16 @@ void AnimationSequenceInterface::addAnimationSequencerToEditor(bool &finished, b
 
         if(selectedEntry == -1) {
             //means nothing is selected, can happen when sequence removed.
-            (*animatingObject->getTransformation()) = originalTransformation;
+            animatingObject->getTransformation()->setTranslate(originalTransformation.getTranslate());
+            animatingObject->getTransformation()->setScale(originalTransformation.getScale());
+            animatingObject->getTransformation()->setOrientation(originalTransformation.getOrientation());
         } else {
-            Transformation itemTransformation = originalTransformation;
+            Transformation itemTransformation(originalTransformation);
             itemTransformation.combine(sections[selectedEntry].transformation);
-            (*animatingObject->getTransformation()) = itemTransformation;
+            //If there is a parent, they share the parent so single is appropriate. If no parent, single works as normal
+            animatingObject->getTransformation()->setTranslate(itemTransformation.getTranslateSingle());
+            animatingObject->getTransformation()->setScale(itemTransformation.getScaleSingle());
+            animatingObject->getTransformation()->setOrientation(itemTransformation.getOrientationSingle());
         }
     }
 
@@ -271,7 +283,12 @@ void AnimationSequenceInterface::addAnimationSequencerToEditor(bool &finished, b
         cancelled = true;
     }
     if(cancelled ||finished) {
-        (*animatingObject->getTransformation()) = originalTransformation;//return to origin if cancelled or finished
+        //Single works both parented and not parented transforms.
+        animatingObject->getTransformation()->setTranslate(originalTransformation.getTranslateSingle());
+        animatingObject->getTransformation()->setScale(originalTransformation.getScaleSingle());
+        animatingObject->getTransformation()->setOrientation(originalTransformation.getOrientationSingle());
+        //since return to origin is done, invalidate the object so destructor doesn't mess with it
+        animatingObject = nullptr;
     }
     ImGui::End();
 }

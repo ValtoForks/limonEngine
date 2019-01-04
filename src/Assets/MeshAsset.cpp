@@ -6,7 +6,8 @@
 #include "../GLHelper.h"
 
 MeshAsset::MeshAsset(AssetManager *assetManager, const aiMesh *currentMesh, std::string name,
-                     const Material *material, const BoneNode *meshSkeleton, const glm::mat4 &parentTransform,
+                     std::shared_ptr<const Material> material, std::shared_ptr<const BoneNode> meshSkeleton,
+                     const glm::mat4 &parentTransform,
                      const bool isPartOfAnimated)
         : name(name), material(material), parentTransform(parentTransform), isPartOfAnimated(isPartOfAnimated) {
     triangleCount = currentMesh->mNumFaces;
@@ -67,7 +68,7 @@ MeshAsset::MeshAsset(AssetManager *assetManager, const aiMesh *currentMesh, std:
 
 
         }
-        std::cout << "Animation added for mesh" << std::endl;
+        //std::cout << "Animation added for mesh" << std::endl;
 
         assetManager->getGlHelper()->bufferExtraVertexData(boneIDs, vao, vbo, 5);
         bufferObjects.push_back(vbo);
@@ -104,7 +105,7 @@ MeshAsset::MeshAsset(AssetManager *assetManager, const aiMesh *currentMesh, std:
                 boneAttachedMeshes[boneID].push_back(k);
             }
 
-            std::cout << "Animation added for mesh" << std::endl;
+            //std::cout << "Animation added for mesh" << std::endl;
 
             assetManager->getGlHelper()->bufferExtraVertexData(boneIDs, vao, vbo, 5);
             bufferObjects.push_back(vbo);
@@ -174,7 +175,7 @@ bool MeshAsset::setTriangles(const aiMesh *currentMesh) {
 void MeshAsset::normalizeTextureCoordinates(glm::vec2 &textureCoordinates) const {
     float fractionPart = textureCoordinates.x;
     if(fabs(textureCoordinates.x) > 1) {
-        float integerPart;
+        double integerPart;
         fractionPart = modf (textureCoordinates.x , &integerPart);
     }
     if(textureCoordinates.x < 0 ) {
@@ -184,7 +185,7 @@ void MeshAsset::normalizeTextureCoordinates(glm::vec2 &textureCoordinates) const
 
     fractionPart = textureCoordinates.y;
     if(fabs(textureCoordinates.y) > 1) {
-        float integerPart;
+        double integerPart;
         fractionPart = modf (textureCoordinates.y , &integerPart);
     }
     if(textureCoordinates.y < 0 ) {
@@ -260,7 +261,7 @@ bool MeshAsset::hasBones() const {
     return bones;
 }
 
-void MeshAsset::fillBoneMap(const BoneNode *boneNode) {
+void MeshAsset::fillBoneMap(std::shared_ptr<const BoneNode> boneNode) {
     if (boneNode == nullptr) {
         return;
     }

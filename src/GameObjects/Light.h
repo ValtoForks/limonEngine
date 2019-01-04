@@ -6,6 +6,7 @@
 #define LIMONENGINE_LIGHT_H
 
 
+#include <glm/gtx/norm.hpp>
 #include "glm/glm.hpp"
 #include "GameObject.h"
 #include "../GLHelper.h"
@@ -20,10 +21,20 @@ public:
 private:
     GLHelper* glHelper;
     glm::mat4 shadowMatrices[6];//these are used only for point lights for now
+    glm::mat4 lightSpaceMatrix;
+public:
+    const glm::mat4 &getLightSpaceMatrix() const;
+
+private:
+// and this is used only for directional lights
     std::vector<glm::vec4> frustumPlanes;
 
     uint32_t objectID;
     glm::vec3 position, color;
+    glm::vec3 renderPosition;
+    glm::vec3 attenuation = glm::vec3(1,0.1,0.01);//const, linear, exponential
+    glm::vec3 ambientColor = glm::vec3(0,0,0); //this will be added to all objects on shading phase
+    float activeDistance = 10;//will auto recalculate on constructor
     LightTypes lightType;
     bool frustumChanged = true;
     void setShadowMatricesForPosition(){
@@ -40,9 +51,12 @@ private:
         shadowMatrices[5] =glHelper->getLightProjectionMatrixPoint() *
                            glm::lookAt(position, position + glm::vec3( 0.0, 0.0,-1.0), glm::vec3(0.0,-1.0, 0.0));
     }
+
+    void calculateActiveDistance();
+
 public:
     Light(GLHelper *glHelper, uint32_t objectID, LightTypes lightType, const glm::vec3 &position,
-              const glm::vec3 &color) :
+          const glm::vec3 &color) :
             glHelper(glHelper),
             objectID(objectID),
             position(position),
@@ -59,6 +73,9 @@ public:
 
         this->frustumPlanes.resize(6);
         glHelper->calculateFrustumPlanes(lightView, glHelper->getLightProjectionMatrixDirectional(), this->frustumPlanes);
+        if(lightType == LightTypes::POINT) {
+            calculateActiveDistance();
+        }
         frustumChanged = true;
     }
 
@@ -66,18 +83,9 @@ public:
         return position;
     }
 
-    void setPosition(glm::vec3 position) {
-        this->position = position;
-        setShadowMatricesForPosition();
+    void setPosition(glm::vec3 position);
 
-        glm::mat4 lightView = glm::lookAt(this->position,
-                                          glm::vec3(0.0f, 0.0f, 0.0f),
-                                          glm::vec3(0.0f, 1.0f, 0.0f));
-
-        glHelper->calculateFrustumPlanes(lightView, glHelper->getLightProjectionMatrixDirectional(), this->frustumPlanes);
-        frustumChanged = true;
-        glHelper->setLight(*this, objectID);
-    }
+    void step(long time);
 
     const glm::vec3 &getColor() const {
         return color;
@@ -103,7 +111,7 @@ public:
         return frustumPlanes;
     }
 
-    bool isShadowCaster(const glm::vec3& aabbMin, const glm::vec3& aabbMax, const glm::vec3& position __attribute((unused))) const {
+    bool isShadowCaster(const glm::vec3& aabbMin, const glm::vec3& aabbMax, const glm::vec3& position) const {
         //there are 2 possibilities.
         // 1) if directional light -> check if in frustum
         // 2) point light -> check if within range
@@ -112,14 +120,14 @@ public:
             case DIRECTIONAL:
                 return glHelper->isInFrustum(aabbMin, aabbMax, this->frustumPlanes);
             case POINT:
-                return true; //TODO not implemented yet
+            return (glm::distance2(position, this->position) < activeDistance * activeDistance);
         }
         return true;//for safety only
     }
 
     /************Game Object methods **************/
 
-    uint32_t getWorldObjectID() {
+    uint32_t getWorldObjectID() const override {
         return objectID;
     };
 
@@ -142,55 +150,33 @@ public:
         return goName;
     };
 
-    ImGuiResult addImGuiEditorElements(const ImGuiRequest &request) {
-        static ImGuiResult result;
-
-        bool crudeUpdated = false;
-        static glm::vec3 preciseTranslatePoint = this->position;
-        result.updated = ImGui::SliderFloat("Precise Position X", &(this->position.x), preciseTranslatePoint.x - 5.0f, preciseTranslatePoint.x + 5.0f)   || result.updated;
-        result.updated = ImGui::SliderFloat("Precise Position Y", &(this->position.y), preciseTranslatePoint.y - 5.0f, preciseTranslatePoint.y + 5.0f)   || result.updated;
-        result.updated = ImGui::SliderFloat("Precise Position Z", &(this->position.z), preciseTranslatePoint.z - 5.0f, preciseTranslatePoint.z + 5.0f)   || result.updated;
-        ImGui::NewLine();
-        crudeUpdated = ImGui::SliderFloat("Crude Position X", &(this->position.x), -100.0f, 100.0f)   || crudeUpdated;
-        crudeUpdated = ImGui::SliderFloat("Crude Position Y", &(this->position.y), -100.0f, 100.0f)   || crudeUpdated;
-        crudeUpdated = ImGui::SliderFloat("Crude Position Z", &(this->position.z), -100.0f, 100.0f)   || crudeUpdated;
-        ImGui::NewLine();
-        result.updated = ImGui::SliderFloat("Color R", &(this->color.r), 0.0f, 1.0f)   || result.updated;
-        result.updated = ImGui::SliderFloat("Color G", &(this->color.g), 0.0f, 1.0f)   || result.updated;
-        result.updated = ImGui::SliderFloat("Color B", &(this->color.b), 0.0f, 1.0f)   || result.updated;
-        ImGui::NewLine();
-
-        if(result.updated || crudeUpdated) {
-            this->setPosition(position);
-        }
-        if(crudeUpdated) {
-            preciseTranslatePoint = this->position;
-        }
-
-        /* IMGUIZMO PART */
-
-        static bool useSnap; //these are static because we want to keep the values
-        static float snap[3] = {1.0f, 1.0f, 1.0f};
-        ImGui::NewLine();
-        ImGui::Checkbox("", &(useSnap));
-        ImGui::SameLine();
-        ImGui::InputFloat3("Snap", &(snap[0]));
-
-        glm::mat4 objectMatrix = glm::translate(glm::mat4(1.0f), position);
-        ImGuizmo::BeginFrame();
-        static ImGuizmo::MODE mCurrentGizmoMode(ImGuizmo::WORLD);
-
-        ImGuiIO& io = ImGui::GetIO();
-        ImGuizmo::SetRect(0, 0, io.DisplaySize.x, io.DisplaySize.y);
-        ImGuizmo::Manipulate(glm::value_ptr(request.perspectiveCameraMatrix), glm::value_ptr(request.perspectiveMatrix), ImGuizmo::TRANSLATE, mCurrentGizmoMode, glm::value_ptr(objectMatrix), NULL, useSnap ? &(snap[0]) : NULL);
-
-        //now we should have object matrix updated, update the object
-        this->setPosition(glm::vec3(objectMatrix[3][0], objectMatrix[3][1], objectMatrix[3][2]));
-
-        return result;
-    }
+    ImGuiResult addImGuiEditorElements(const ImGuiRequest &request);
     /************Game Object methods **************/
 
+    void updateLightView();
+
+
+    glm::vec3 getAttenuation() const {
+        return attenuation;
+    }
+
+    void setAttenuation(const glm::vec3& attenuation) {
+        this->attenuation = attenuation;
+        calculateActiveDistance();
+        this->setFrustumChanged(true);
+    }
+
+    float getActiveDistance() const {
+        return activeDistance;
+    }
+
+    const glm::vec3 &getAmbientColor() const {
+        return ambientColor;
+    }
+
+    void setAmbientColor(const glm::vec3 &ambientColor) {
+        Light::ambientColor = ambientColor;
+    }
 };
 
 

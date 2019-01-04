@@ -17,7 +17,6 @@ class Options;
 class GUIRenderable;
 
 class FreeCursorPlayer : public Player, public CameraAttachment {
-    Options* options;
     bool dirty;
     glm::vec3 position;
     glm::vec3 center;
@@ -26,7 +25,8 @@ class FreeCursorPlayer : public Player, public CameraAttachment {
     glm::quat view;
 public:
 
-    FreeCursorPlayer(Options* options, GUIRenderable* cursor);
+    FreeCursorPlayer(Options *options, GUIRenderable *cursor, const glm::vec3 &position,
+                         const glm::vec3 &lookDirection);
 
     bool isDirty() {
         return dirty;

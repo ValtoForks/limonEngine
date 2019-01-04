@@ -12,25 +12,18 @@
 
 //FIXME there must be a better way then is found.
 //FIXME requiring node name should not be a thing
-glm::mat4 AnimationAssimp::calculateTransform(const std::string &nodeName, float time, bool &isFound) const {
-    if (nodes.find(nodeName) == nodes.end()) {//if the bone has no animation, it can happen
-        isFound = false;
-        return glm::mat4(1.0f);
+bool AnimationAssimp::calculateTransform(const std::string& nodeName, float time, Transformation& transformation) const {
+    bool status = false;
+    if (nodes.find(nodeName) == nodes.end()) { //if the bone has no animation, it can happen
+        return status;
     }
-    isFound = true;
+    status = true;
     AnimationNode *nodeAnimation = nodes.at(nodeName);
-    //this method can benefit from move and also reusing the intermediate matrices
-    glm::vec3 scalingTransformVector, transformVector;
-    glm::quat rotationTransformQuaternion;
 
-    scalingTransformVector = nodeAnimation->getScalingVector(time);
-    rotationTransformQuaternion = nodeAnimation->getRotationQuat(time);
-    transformVector = nodeAnimation->getPositionVector(time);
-
-    glm::mat4 rotationMatrix = glm::mat4_cast(rotationTransformQuaternion);
-    glm::mat4 translateMatrix = glm::translate(glm::mat4(1.0f), transformVector);
-    glm::mat4 scaleTransform = glm::scale(glm::mat4(1.0f), scalingTransformVector);
-    return translateMatrix * rotationMatrix * scaleTransform;
+    transformation.setScale(nodeAnimation->getScalingVector(time));
+    transformation.setOrientation(nodeAnimation->getRotationQuat(time));
+    transformation.setTranslate(nodeAnimation->getPositionVector(time));
+    return status;
 }
 
 AnimationAssimp::AnimationAssimp(aiAnimation *assimpAnimation) {

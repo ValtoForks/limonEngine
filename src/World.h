@@ -9,14 +9,16 @@
 #include <tinyxml2.h>
 #include <unordered_map>
 #include <set>
-#include "glm/glm.hpp"
+#include <queue>
+
 #include "InputHandler.h"
 #include "FontManager.h"
 #include "GameObjects/SkyBox.h"
 #include "GamePlay/LimonAPI.h"
-#include "AI/Actor.h"
+#include "AI/ActorInterface.h"
 #include "ALHelper.h"
 #include "GameObjects/Players/Player.h"
+#include "SDL2Helper.h"
 
 
 class btGhostPairCallback;
@@ -26,8 +28,8 @@ class BulletDebugDrawer;
 class Light;
 class AIMovementGrid;
 class TriggerInterface;
-class GUIText;
 
+class GUIText;
 class GUIRenderable;
 class GUILayer;
 class GUITextBase;
@@ -51,30 +53,47 @@ class AnimationCustom;
 class AnimationNode;
 class AnimationSequenceInterface;
 class LimonAPI;
+class ModelGroup;
+
+class QuadRenderBase;
+class CombinePostProcess;
+class SSAOPostProcess;
+class SSAOBlurPostProcess;
 
 class GLHelper;
 class ALHelper;
 
 class World {
 public:
-    struct PlayerTypes {
+    struct PlayerInfo {
         enum class Types {
             //ATTENTION if another type is added, typeNames must be updated
             PHYSICAL_PLAYER, DEBUG_PLAYER, EDITOR_PLAYER, MENU_PLAYER
         };
-        Types type = Types::PHYSICAL_PLAYER;
 
         static const std::map<Types, std::string> typeNames;
 
-        std::string toString() const {
-            assert(typeNames.find(type) != typeNames.end());
-            return typeNames.at(type);
+        Types type = Types::PHYSICAL_PLAYER;
+        glm::vec3 position = glm::vec3(0,0,0);
+        glm::vec3 orientation = glm::vec3(0,0,-1);
+        Model* attachedModel = nullptr;
+        std::string extensionName;
+
+        PlayerInfo() {
+            position = glm::vec3(-15, 7,25);
+            orientation = glm::vec3(1, 0, 0);
+
         }
 
-        PlayerTypes() {}
-
-        PlayerTypes(const std::string& name) {
+        PlayerInfo(const std::string& name) {
+            position = glm::vec3(-15, 7,25);
+            orientation = glm::vec3(1, 0, 0);
             setType(name);
+        }
+
+        std::string typeToString() const {
+            assert(typeNames.find(type) != typeNames.end());
+            return typeNames.at(type);
         }
 
         bool setType(const std::string& name) {
@@ -93,10 +112,33 @@ public:
 
     };
 private:
+
+    struct TimedEvent {
+        long callTime;
+        std::function<void(const std::vector<LimonAPI::ParameterRequest>&)> methodToCall;
+        std::vector<LimonAPI::ParameterRequest> parameters;
+
+        TimedEvent(long callTime, std::function<void(const std::vector<LimonAPI::ParameterRequest>&)> methodToCall,
+                   std::vector<LimonAPI::ParameterRequest> parameters) :
+        callTime(callTime), methodToCall(std::move(methodToCall)), parameters(std::move(parameters)) {}
+
+        bool operator>(const TimedEvent &timedEventRight) const {
+            return callTime > timedEventRight.callTime;
+        }
+        void run() const {
+            if(this->methodToCall != nullptr) {
+                this->methodToCall(parameters);
+            } else {
+                std::cerr << "Timed method call failed, because method is null" << std::endl;
+            }
+        }
+    };
+
     struct AnimationStatus {
         PhysicalRenderable* object = nullptr;
         uint32_t animationIndex;
         bool loop;
+        bool originChange = false;
         long startTime;
         Transformation originalTransformation;
         bool wasKinematic;
@@ -125,8 +167,12 @@ private:
     std::vector<uint32_t > modelIndicesBuffer;
     AssetManager* assetManager;
     Options* options;
-    uint32_t nextWorldID = 1;
+    uint32_t nextWorldID = 2;
+    std::queue<uint32_t> unusedIDs;
     std::map<uint32_t, PhysicalRenderable *> objects;
+    std::set<uint32_t> disconnectedModels;
+    std::map<uint32_t, ModelGroup*> modelGroups;
+
     Sound* music = nullptr;
 
     /*
@@ -141,18 +187,23 @@ private:
     std::set<Model*> animatedModelsInAnyFrustum;
 
     /************************* End of redundant variables ******************************************/
+    std::priority_queue<TimedEvent, std::vector<TimedEvent>, std::greater<TimedEvent>> timedEvents;
+
 
     std::map<uint32_t, GUIRenderable*> guiElements;
     std::map<uint32_t, TriggerObject*> triggers;
     std::vector<ActionForOnload* > onLoadActions;
     std::vector<AnimationCustom> loadedAnimations;
     std::set<PhysicalRenderable*> onLoadAnimations;//Those renderables animations should be loaded and started on load
-    std::unordered_map<PhysicalRenderable*, AnimationStatus> activeAnimations;
+    std::unordered_map<PhysicalRenderable*, AnimationStatus*> activeAnimations;
     std::unordered_map<uint32_t, std::unique_ptr<Sound>> sounds;
     AnimationSequenceInterface* animationInProgress = nullptr;
     std::vector<Light *> lights;
+    int32_t directionalLightIndex = -1;
+    glm::vec3 lastLightUpdatePlayerPosition = glm::vec3(0,0,0);
+    std::vector<Light *> activeLights; //this contains redundant pointers at most MAX_LIGHT elements, from lights array.
     std::vector<GUILayer *> guiLayers;
-    std::unordered_map<uint32_t, Actor*> actors;
+    std::unordered_map<uint32_t, ActorInterface*> actors;
     AIMovementGrid *grid = nullptr;
     SkyBox *sky = nullptr;
     GLHelper *glHelper;
@@ -166,11 +217,15 @@ private:
     glm::vec3 worldAABBMin= glm::vec3(std::numeric_limits<float>::max());
     glm::vec3 worldAABBMax = glm::vec3(std::numeric_limits<float>::min());
 
-    GLSLProgram *shadowMapProgramDirectional, *shadowMapProgramPoint;
+    GLSLProgram *shadowMapProgramDirectional = nullptr;
+    GLSLProgram *shadowMapProgramPoint = nullptr;
+    GLSLProgram *depthBufferProgram = nullptr;
     FontManager fontManager;
 
-    PlayerTypes startingPlayer;
+    PlayerInfo startingPlayer;
+    char extensionNameBuffer[32] {};
     PhysicalPlayer* physicalPlayer = nullptr;
+    Model* playerPlaceHolder = nullptr;
     FreeCursorPlayer* editorPlayer = nullptr;
     FreeMovingPlayer* debugPlayer = nullptr;
     MenuPlayer* menuPlayer = nullptr;
@@ -180,7 +235,7 @@ private:
 
     Camera* camera;
     BulletDebugDrawer *debugDrawer;
-    GameObject::ImGuiRequest* request;
+    GameObject::ImGuiRequest* request = nullptr;
 
     GUILayer *apiGUILayer;
     GUIText* renderCounts;
@@ -201,7 +256,13 @@ private:
     btSequentialImpulseConstraintSolver *solver;
     ImGuiHelper *imgGuiHelper;
     GameObject* pickedObject = nullptr;
-    bool availableAssetsLoaded = false;
+    uint32_t pickedObjectID = 0xFFFFFFFF;//FIXME not 0 because 0 is used by player and lights, they should get real ids.
+    Model* objectToAttach = nullptr;
+    CombinePostProcess* combiningObject;
+    SSAOPostProcess* ssaoPostProcess;
+    SSAOBlurPostProcess* ssaoBlurPostProcess;
+    std::map<uint32_t, SDL2Helper::Thread*> routeThreads;
+
     bool guiPickMode = false;
     enum class QuitResponse
     {
@@ -211,77 +272,20 @@ private:
     };
     QuitResponse currentQuitResponse = QuitResponse::QUIT_GAME;
 
+    bool addPlayerAttachmentUsedIDs(const PhysicalRenderable *attachment, std::set<uint32_t> &usedIDs, uint32_t &maxID);
+
     /**
-     * This method checks, if IDs assigned without any empty space, and any collision
-     * and sets the totalObjectCount accordingly.
-     * @return true if everything ok, false if not
-     */
-    bool verifyIDs(){
-        std::set<uint32_t > usedIDs;
-        uint32_t maxID = 0;
-        /** there are 3 places that has IDs,
-         * 1) sky
-         * 2) objects
-         * 3) AIs
+         * This method checks, if IDs assigned without any empty space, and any collision
+         * and sets the totalObjectCount accordingly.
+         * @return true if everything ok, false if not
          */
-        //put sky first, since it is guaranteed to be single
-        if(this->sky != nullptr) {
-            usedIDs.insert(this->sky->getWorldObjectID());
-            maxID = this->sky->getWorldObjectID();
-        }
-
-        for(auto object = objects.begin(); object != objects.end(); object++) {
-            auto result = usedIDs.insert(object->first);
-            if(result.second == false) {
-                std::cerr << "world ID repetition on object detected! with id " << object->first << std::endl;
-                return false;
-            }
-            maxID = std::max(maxID,object->first);
-        }
-
-        for(auto trigger = triggers.begin(); trigger != triggers.end(); trigger++) {
-            auto result = usedIDs.insert(trigger->first);
-            if(result.second == false) {
-                std::cerr << "world ID repetition on trigger detected! with id " << trigger->first << std::endl;
-                return false;
-            }
-            maxID = std::max(maxID,trigger->first);
-        }
-
-        for(auto actor = actors.begin(); actor != actors.end(); actor++) {
-            auto result = usedIDs.insert(actor->first);
-            if(result.second == false) {
-                std::cerr << "world ID repetition on trigger detected! Actor with id " << actor->first << std::endl;
-                return false;
-            }
-            maxID = std::max(maxID,actor->first);
-        }
-
-        for (auto guiElement = guiElements.begin(); guiElement != guiElements.end(); ++guiElement) {
-            auto result = usedIDs.insert(guiElement->first);
-            if(result.second == false) {
-                std::cerr << "world ID repetition on trigger detected! gui element with id " << guiElement->first << std::endl;
-                return false;
-            }
-            maxID = std::max(maxID, guiElement->first);
-        }
-
-        for(uint32_t index = 1; index <= maxID; index++) {
-            if(usedIDs.count(index) != 1) {
-                //TODO this should be ok, logging just to check. Can be removed in the future
-                std::cout << "found empty ID" << index << std::endl;
-            }
-        }
-
-        nextWorldID = maxID+1;
-        return true;
-    }
+    bool verifyIDs();
 
     bool handlePlayerInput(InputHandler &inputHandler);
 
     bool checkPlayerVisibility(const glm::vec3 &from, const std::string &fromName);
 
-    ActorInformation fillActorInformation(Actor *actor);
+    ActorInterface::ActorInformation fillActorInformation(ActorInterface *actor);
 
     void updateWorldAABB(glm::vec3 aabbMin, glm::vec3 aabbMax);
 
@@ -290,9 +294,10 @@ private:
 
     void fillVisibleObjects();
 
-    GameObject * getPointedObject() const;
+    GameObject *getPointedObject(int collisionType, int filterMask,
+                                 glm::vec3 *collisionPosition = nullptr, glm::vec3 *collisionNormal = nullptr) const;
 
-    void addActor(Actor *actor);
+    void addActor(ActorInterface *actor);
 
     void createGridFrom(const glm::vec3 &aiGridStartPoint);
 
@@ -300,7 +305,7 @@ private:
 
     void addLight(Light *light);
 
-    World(const std::string &name, PlayerTypes startingPlayerType, InputHandler *inputHandler,
+    World(const std::string &name, PlayerInfo startingPlayerType, InputHandler *inputHandler,
               AssetManager *assetManager, Options *options);
 
     void afterLoadFinished();
@@ -319,9 +324,19 @@ private:
     void addGUITextControls();
     void addGUIImageControls();
     void addGUIButtonControls();
+    void addGUIAnimationControls();
     void addGUILayerControls();
 /********** Editor Methods *********************/
     //API methods
+
+    Model* findModelByID(uint32_t modelID) const;
+    Model* findModelByIDChildren(PhysicalRenderable* parent ,uint32_t modelID) const;
+
+    std::vector<LimonAPI::ParameterRequest>
+    fillRouteInformation(std::vector<LimonAPI::ParameterRequest> parameters) const;
+
+    void renderPlayerAttachments(GameObject *attachment) const;
+    void clearWorldRefsBeforeAttachment(PhysicalRenderable *attachment);
 
 public:
     ~World();
@@ -331,6 +346,11 @@ public:
     void render();
 
     uint32_t getNextObjectID() {
+        if(unusedIDs.size() > 0) {
+            uint32_t id = unusedIDs.front();
+            unusedIDs.pop();
+            return id;
+        }
         return nextWorldID++;
     }
 
@@ -358,9 +378,16 @@ public:
                         const glm::vec3 &color,
                         const glm::vec2 &position, float rotation);
 
-    uint32_t updateGuiText(uint32_t guiTextID, const std::string &newText);
+    uint32_t addGuiImageAPI(const std::string &imageFilePath, const std::string &name,
+                                   const LimonAPI::Vec2 &position, const LimonAPI::Vec2 &scale, float rotation);
 
-    uint32_t removeObject(uint32_t objectID);
+    uint32_t addModelApi(const std::string &modelFilePath, float modelWeight, bool physical, const glm::vec3 &position,
+                         const glm::vec3 &scale, const glm::quat &orientation);
+    bool attachObjectToObject(uint32_t objectID, uint32_t objectToAttachToID);
+
+    bool updateGuiText(uint32_t guiTextID, const std::string &newText);
+
+    bool removeObject(uint32_t objectID);
     bool removeTriggerObject(uint32_t triggerobjectID);
     uint32_t removeGuiText(uint32_t guiElementID);
 
@@ -376,8 +403,65 @@ public:
 
     bool reconnectObjectToPhysics(uint32_t objectWorldID);
 
+    bool disconnectObjectFromPhysicsRequest(uint32_t objectWorldID);
+
+    bool reconnectObjectToPhysicsRequest(uint32_t objectWorldID);
+
+    /**
+     * If nothing is hit, returns empty vector
+     * returns these values:
+     * 1) objectID for what is under the cursor
+     * 2) hit coordinates
+     * 3) hit normal
+     *
+     */
+    std::vector<LimonAPI::ParameterRequest> rayCastToCursorAPI();
+
+
+    std::vector<LimonAPI::ParameterRequest> getObjectTransformationAPI(uint32_t objectID) const;
+
+    std::vector<LimonAPI::ParameterRequest> getObjectTransformationMatrixAPI(uint32_t objectID) const;
+
+    bool setObjectTranslateAPI(uint32_t objectID, const LimonAPI::Vec4& position);
+    bool setObjectScaleAPI(uint32_t objectID, const LimonAPI::Vec4& scale);
+    bool setObjectOrientationAPI(uint32_t objectID, const LimonAPI::Vec4& orientation);
+
+    bool addObjectTranslateAPI(uint32_t objectID, const LimonAPI::Vec4& position);
+    bool addObjectScaleAPI(uint32_t objectID, const LimonAPI::Vec4& scale);
+    bool addObjectOrientationAPI(uint32_t objectID, const LimonAPI::Vec4& orientation);
+
+    bool interactWithAIAPI(uint32_t AIID, std::vector<LimonAPI::ParameterRequest> &interactionInformation) const;
+
+    void interactWithPlayerAPI(std::vector<LimonAPI::ParameterRequest> &interactionInformation) const;
+
+    void addTimedEventAPI(long waitTime, std::function<void(const std::vector<LimonAPI::ParameterRequest>&)> methodToCall,
+                              std::vector<LimonAPI::ParameterRequest> parameters);
+
+    uint32_t getPlayerAttachedModelAPI();
+    std::vector<uint32_t> getModelChildrenAPI(uint32_t modelID);
+
+    std::string getModelAnimationNameAPI(uint32_t modelID);
+    bool getModelAnimationFinishedAPI(uint32_t modelID);
+    bool setModelAnimationAPI(uint32_t modelID, std::string animationName, bool isLooped);
+    bool setModelAnimationWithBlendAPI(uint32_t modelID, std::string animationName, bool isLooped, long blendTime);
+
+    LimonAPI::Vec4 getPlayerModelOffsetAPI();
+    bool setPlayerModelOffsetAPI(LimonAPI::Vec4 newOffset);
+    void killPlayerAPI();
+
     /************************************ Methods LimonAPI exposes *************/
     void setupForPlay(InputHandler &inputHandler);
+
+    void checkAndRunTimedEvents();
+
+    void animateCustomAnimations();
+
+    void buildTreeFromAllGameObjects();
+
+    void createObjectTreeRecursive(PhysicalRenderable *physicalRenderable, uint32_t pickedObjectID, int nodeFlags, int leafFlags,
+                                       std::vector<uint32_t> parentage);
+
+    void updateActiveLights(bool forceUpdate = false);
 };
 
 #endif //LIMONENGINE_WORLD_H

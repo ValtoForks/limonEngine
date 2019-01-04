@@ -18,49 +18,109 @@ class GLHelper;
 class ALHelper;
 
 class AssetManager {
-    enum AssetTypes { Asset_type_MODEL, Asset_type_TEXTURE, Asset_type_SKYMAP, Asset_type_SOUND };
+public:
+    enum AssetTypes { Asset_type_DIRECTORY, Asset_type_MODEL, Asset_type_TEXTURE, Asset_type_SKYMAP, Asset_type_SOUND, Asset_type_UNKNOWN };
+
+    struct EmbeddedTexture {
+        char format[9] = "\0";
+        uint32_t height = 0;
+        uint32_t width = 0;
+        std::vector<uint8_t> texelData;
+
+        bool checkFormat(const char* s) const {
+            if (nullptr == s) {
+                return false;
+            }
+            return (0 == ::strncmp(format, s, sizeof(format)));
+        }
+
+        EmbeddedTexture() = default;
+
+        EmbeddedTexture(const EmbeddedTexture& texture2) {
+            memcpy(this->format, texture2.format, 9);
+            this->height = texture2.height;
+            this->width = texture2.width;
+            if(this->height != 0) {
+                this->texelData.resize(this->height * this->width);
+                memcpy(this->texelData.data(), texture2.texelData.data(), this->height* this->width);
+            } else {
+                //compressed data
+                this->texelData.resize(this->width);
+                memcpy(this->texelData.data(), texture2.texelData.data(), this->width);
+            }
+
+        }
+
+    };
+
+    struct AvailableAssetsNode {
+        std::string name;
+        std::string nameLower;
+        std::string fullPath;
+        AssetTypes assetType = Asset_type_UNKNOWN;
+        AvailableAssetsNode* parent = nullptr;
+        std::vector<AvailableAssetsNode*> children;
+
+        ~AvailableAssetsNode() {
+            for (size_t i = 0; i < children.size(); ++i) {
+                delete children[i];
+            }
+        }
+
+        const AvailableAssetsNode* findNode(const std::string& requestedPath) const {
+            if(this->fullPath == requestedPath) {
+                return this;
+            }
+            for (auto child = children.begin(); child != children.end(); ++child) {
+                const AvailableAssetsNode* result = (*child)->findNode(requestedPath);
+                if(result != nullptr) {
+                    return result;
+                }
+            }
+            return nullptr;
+        }
+    };
+private:
+    const std::string ASSET_EXTENSIONS_FILE = "./Engine/assetExtensions.xml";
+
     //second of the pair is how many times load requested. prework for unload
     std::map<const std::vector<std::string>, std::pair<Asset *, uint32_t>> assets;
+    std::unordered_map<std::string, std::vector<std::shared_ptr<const EmbeddedTexture>>> embeddedTextures;
     uint32_t nextAssetIndex = 1;
 
-    std::map<std::string, AssetTypes> availableAssetsList;//this map should be ordered, or editor list order would be unpredictable
+    //std::map<std::string, AssetTypes> availableAssetsList;//this map should be ordered, or editor list order would be unpredictable
+    AvailableAssetsNode* availableAssetsRootNode = nullptr;
+    std::map<std::pair<AssetTypes, std::string>, AvailableAssetsNode*> filteredResults;
     GLHelper *glHelper;
     ALHelper *alHelper;
+
+    void addAssetsRecursively(const std::string &directoryPath, const std::string &fileName,
+                                  const std::vector<std::pair<std::string, AssetTypes>> &fileExtensions,
+                                  AvailableAssetsNode* nodeToProcess);
+
+    std::vector<std::pair<std::string, AssetTypes>> loadAssetExtensionList();
+
+    bool loadAssetList();
+
+    bool isExtensionInList(const std::string &name, const std::vector<std::pair<std::string, AssetTypes>> &vector,
+                               AssetTypes &elementAssetType);
+
+    static bool isEnding(std::string const &fullString, std::string const &ending) {
+        if (fullString.length() >= ending.length()) {
+            return (0 == fullString.compare (fullString.length() - ending.length(), ending.length(), ending));
+        } else {
+            return false;
+        }
+    }
+
+    AvailableAssetsNode * getAvailableAssetsTreeFilteredRecursive(const AvailableAssetsNode * const assetsNode ,
+                                                                  AssetTypes type,
+                                                                  const std::string &filterText);
+
 public:
 
-    explicit AssetManager(GLHelper *glHelper, ALHelper *alHelper) : glHelper(glHelper), alHelper(alHelper) {}
-
-    /**
-     * This should be done not from file but file system. Best way is switch to c++17, but not sure
-     *
-     * @param assetListFile
-     */
-    bool loadAssetList(const std::string& assetListFile) {
-        tinyxml2::XMLDocument xmlDoc;
-        tinyxml2::XMLError eResult = xmlDoc.LoadFile(assetListFile.c_str());
-        if (eResult != tinyxml2::XML_SUCCESS) {
-            std::cerr << "Error loading Asset file list XML: " <<  xmlDoc.ErrorName() << std::endl;
-            return false;
-        }
-        tinyxml2::XMLNode * assetsNode = xmlDoc.FirstChild();
-        if (assetsNode == nullptr) {
-            std::cerr << "Asset list xml is not a valid XML." << std::endl;
-            return false;
-        }
-        const char* typeName;
-        tinyxml2::XMLElement* currentAssetNode =  assetsNode->FirstChildElement("Asset");
-        while(currentAssetNode != nullptr) {
-            typeName = currentAssetNode->Attribute("type");
-            if(!strcmp(typeName, "Model")) {// if type Model
-                availableAssetsList[currentAssetNode->GetText()] = AssetTypes::Asset_type_MODEL;
-                std::cout << "adding available asset " << currentAssetNode->GetText() << std::endl;
-            } else {
-                std::cerr << "Not implemented yet" << std::endl;
-                exit(-1);
-            }
-            currentAssetNode = currentAssetNode->NextSiblingElement("Asset");
-        }
-        return true;
+    explicit AssetManager(GLHelper *glHelper, ALHelper *alHelper) : glHelper(glHelper), alHelper(alHelper) {
+        loadAssetList();
     }
 
     template<class T>
@@ -75,8 +135,17 @@ public:
     }
 
     void freeAsset(const std::vector<std::string> files) {
+        if(files.size() == 0) {
+            std::cerr << "Free asset call with empty file list, this is invalid!" << std::endl;
+            return;
+        }
         if (assets.count(files) == 0) {
-            std::cerr << "Unloading an asset that was not loaded. skipping" << std::endl;
+            std::cerr << "Unloading an asset [";
+            for (uint32_t i = 0; i < files.size() -1; ++i) {
+                std::cerr << files[i] << ", ";
+            }
+
+            std::cerr << files[files.size()-1] << "] that was not loaded. skipping." << std::endl;
             return;
         }
         assets[files].second--;
@@ -85,12 +154,34 @@ public:
             Asset *assetToRemove = assets[files].first;
             delete assetToRemove;
             assets.erase(files);
+            if(embeddedTextures.find(files[0]) != embeddedTextures.end()) {
+                embeddedTextures.erase(files[0]);
+            }
         }
     }
 
-    const std::map<std::string, AssetTypes>& getAvailableAssetsList() {
-        return availableAssetsList;
+    const AvailableAssetsNode* getAvailableAssetsTree() {
+        return availableAssetsRootNode;
     };
+
+    const AvailableAssetsNode* getAvailableAssetsTreeFiltered(AssetTypes type, const std::string &filterText);
+
+
+    void addEmbeddedTextures(const std::string& ownerAsset, std::vector<std::shared_ptr<const EmbeddedTexture>> textures) {
+        this->embeddedTextures[ownerAsset] = textures;
+    }
+
+    std::shared_ptr<const EmbeddedTexture> getEmbeddedTextures(const std::string& ownerAsset, uint32_t textureID) {
+        if(embeddedTextures.find(ownerAsset) == embeddedTextures.end()) {
+            return nullptr;
+        }
+        if(embeddedTextures[ownerAsset].size() <= textureID) {
+            return nullptr;
+        }
+
+        return embeddedTextures[ownerAsset][textureID];
+
+    }
 
 
     GLHelper *getGlHelper() const {
@@ -107,8 +198,14 @@ public:
              it != assets.end(); it++) {
             delete it->second.first;
         }
-    }
 
+        delete availableAssetsRootNode;
+
+        for (auto tree_iterator = filteredResults.begin(); tree_iterator != filteredResults.end(); ++tree_iterator) {
+            delete tree_iterator->second;
+        }
+
+    }
 };
 
 

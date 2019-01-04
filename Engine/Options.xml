@@ -1,4 +1,5 @@
 <Options>
+    <fullScreen>False</fullScreen>
     <screenWidth>1920</screenWidth>
     <screenHeight>1080</screenHeight>
     <shadowMapDirectionalWidth>4096</shadowMapDirectionalWidth>
@@ -8,9 +9,12 @@
     <debugDrawBufferSize>1000</debugDrawBufferSize>
 
     <lightOrthogonalProjectionNearPlane>1.0</lightOrthogonalProjectionNearPlane>
-    <lightOrthogonalProjectionFarPlane>100</lightOrthogonalProjectionFarPlane>
+    <lightOrthogonalProjectionFarPlane>100000</lightOrthogonalProjectionFarPlane>
     <lightPerspectiveProjectionNearPlane>1.0</lightPerspectiveProjectionNearPlane>
     <lightPerspectiveProjectionFarPlane>100</lightPerspectiveProjectionFarPlane>
+    <TextureFiltering>Trilinear</TextureFiltering>
+    <!--<TextureFiltering>"Nearest"</TextureFiltering>-->
+    <!--<TextureFiltering>"Bilinear"</TextureFiltering>-->
     <walkSpeed>
         <X>8</X>
         <Y>0</Y>
@@ -22,14 +26,16 @@
         <Z>12</Z>
     </runSpeed>
     <freeMovementSpeed>
-        <X>0.1</X>
-        <Y>0.1</Y>
-        <Z>0.1</Z>
+        <X>0.5</X>
+        <Y>0.5</Y>
+        <Z>0.5</Z>
     </freeMovementSpeed>
     <lightOrthogonalProjectionValues>
-        <X>-100.0</X>
-        <Y>100.0</Y>
-        <Z>-100.0</Z>
-        <W>100.0</W>
+        <X>-50.0</X>
+        <Y>50.0</Y>
+        <Z>-50.0</Z>
+        <W>50.0</W>
     </lightOrthogonalProjectionValues>
+    <SSAOEnabled>True</SSAOEnabled>
+    <SSAOSampleCount>9</SSAOSampleCount>
 </Options>

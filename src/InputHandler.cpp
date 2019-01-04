@@ -18,10 +18,16 @@ InputHandler::InputHandler(SDL_Window *window, Options *options) :
     inputStatus[MOVE_RIGHT] = false;
     inputStatus[JUMP] = false;
     inputEvents[JUMP] = false;
+    inputStatus[RUN] = false;
+    inputEvents[RUN] = false;
     inputStatus[DEBUG] = false;
     inputEvents[DEBUG] = false;
     inputStatus[EDITOR] = false;
     inputEvents[EDITOR] = false;
+    inputStatus[NUMBER_1] = false;
+    inputEvents[NUMBER_1] = false;
+    inputStatus[NUMBER_2] = false;
+    inputEvents[NUMBER_2] = false;
     inputStatus[KEY_ALT] = false;
     inputEvents[KEY_ALT] = false;
     inputStatus[KEY_CTRL] = false;
@@ -58,6 +64,8 @@ void InputHandler::mapInput() {
     inputEvents[MOUSE_WHEEL_DOWN] = false;
     inputEvents[TEXT_INPUT] = false;
     inputEvents[QUIT] = false;
+    inputEvents[NUMBER_1] = false;
+    inputEvents[NUMBER_2] = false;
 
     while (SDL_PollEvent(&event)) {
         uint32_t downKey = event.key.keysym.sym & ~SDLK_SCANCODE_MASK;
@@ -94,12 +102,21 @@ void InputHandler::mapInput() {
             case SDL_MOUSEBUTTONUP:
                 switch (event.button.button) {
                     case SDL_BUTTON_LEFT:
+                        if(inputStatus[MOUSE_BUTTON_LEFT]) {
+                            inputEvents[MOUSE_BUTTON_LEFT] = true;
+                        }
                         inputStatus[MOUSE_BUTTON_LEFT] = false;
                         break;
                     case SDL_BUTTON_MIDDLE:
+                        if(inputStatus[MOUSE_BUTTON_MIDDLE]) {
+                            inputEvents[MOUSE_BUTTON_MIDDLE] = true;
+                        }
                         inputStatus[MOUSE_BUTTON_MIDDLE] = false;
                         break;
                     case SDL_BUTTON_RIGHT:
+                        if(inputStatus[MOUSE_BUTTON_RIGHT]) {
+                            inputEvents[MOUSE_BUTTON_RIGHT] = true;
+                        }
                         inputStatus[MOUSE_BUTTON_RIGHT] = false;
                         break;
                 }
@@ -181,11 +198,23 @@ void InputHandler::mapInput() {
                         }
                         inputStatus[DEBUG] = true;
                         break;
-                    case SDLK_QUOTEDBL:
+                    case SDLK_F2:
                         if(!inputStatus[EDITOR]) {
                             inputEvents[EDITOR] = true;
                         }
                         inputStatus[EDITOR] = true;
+                        break;
+                    case SDLK_1:
+                        if(!inputStatus[NUMBER_1]) {
+                            inputEvents[NUMBER_1] = true;
+                        }
+                        inputStatus[NUMBER_1] = true;
+                        break;
+                    case SDLK_2:
+                        if(!inputStatus[NUMBER_2]) {
+                            inputEvents[NUMBER_2] = true;
+                        }
+                        inputStatus[NUMBER_2] = true;
                         break;
                     case SDLK_KP_PLUS:
                         options->setLookAroundSpeed(options->getLookAroundSpeed() + 1.0f);
@@ -258,11 +287,23 @@ void InputHandler::mapInput() {
                         }
                         inputStatus[DEBUG] = false;
                         break;
-                    case SDLK_QUOTEDBL:
+                    case SDLK_F2:
                         if(!inputStatus[EDITOR]) {
                             inputEvents[EDITOR] = true;
                         }
                         inputStatus[EDITOR] = false;
+                        break;
+                    case SDLK_1:
+                        if(!inputStatus[NUMBER_1]) {
+                            inputEvents[NUMBER_1] = true;
+                        }
+                        inputStatus[NUMBER_1] = false;
+                        break;
+                    case SDLK_2:
+                        if(!inputStatus[NUMBER_2]) {
+                            inputEvents[NUMBER_2] = true;
+                        }
+                        inputStatus[NUMBER_2] = false;
                         break;
                 }
                 break;

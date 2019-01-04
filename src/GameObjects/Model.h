@@ -19,23 +19,37 @@
 
 #include "Sound.h"
 
-class Actor;
+class ActorInterface;
 
 class Model : public PhysicalRenderable, public GameObject {
     uint32_t objectID;
     struct MeshMeta {
-        MeshAsset* mesh = nullptr;
+        std::shared_ptr<MeshAsset> mesh = nullptr;
         GLSLProgram* program = nullptr;
     };
-    Actor *AIActor = nullptr;
+    ActorInterface *AIActor = nullptr;
     AssetManager *assetManager;
     ModelAsset *modelAsset;
+
     std::string animationName;
     long animationTime = 0;
+    bool animationLooped = true;
+
+    std::string animationNameOld;
+    long animationTimeOld = 0;
+    bool animationLoopedOld = true;
+
+    bool animationBlend = false;
+    long animationBlendTime = 1000;
+
+    bool animationLastFramePlayed = false;
     long lastSetupTime = 0;
     float animationTimeScale = 1.0f;
     std::string name;
     bool animated = false;
+    bool isAIParametersDirty = true;
+    std::vector<LimonAPI::ParameterRequest> aiParameters;
+    std::string lastSelectedAIName;
     std::vector<glm::mat4> boneTransforms;
     std::map<uint_fast32_t, uint_fast32_t> boneIdCompoundChildMap;
 
@@ -44,12 +58,18 @@ class Model : public PhysicalRenderable, public GameObject {
     char stepOnSoundNameBuffer[128] = {};
 
     btCompoundShape *compoundShape;
-    std::unordered_map<std::string, Material *> materialMap;
+    std::unordered_map<std::string, std::shared_ptr<Material>> materialMap;
     int diffuseMapAttachPoint = 1;
     int ambientMapAttachPoint = 2;
     int specularMapAttachPoint = 3;
     int opacityMapAttachPoint = 4;
+    int normalMapAttachPoint = 5;
     uint_fast32_t triangleCount;
+    int32_t selectedBoneID = -1;
+    std::map<uint32_t, Transformation*> exposedBoneTransforms;
+
+    static ImGuiResult putAIonGUI(ActorInterface *actorInterface, std::vector<LimonAPI::ParameterRequest> &parameters,
+                                  const ImGuiRequest &request, std::string &lastSelectedAIName);
 
 public:
     Model(uint32_t objectID, AssetManager *assetManager, const std::string &modelFile) : Model(objectID, assetManager,
@@ -71,7 +91,7 @@ public:
     }
 
     void setSamplersAndUBOs(GLSLProgram *program);
-    void activateTexturesOnly(const Material *material);
+    void activateTexturesOnly(std::shared_ptr<const Material> material);
 
     bool setupRenderVariables(MeshMeta *meshMetaData);
 
@@ -89,9 +109,43 @@ public:
 
     float getMass() const { return mass;}
 
-    void setAnimation(const std::string& animationName) {
+    void setAnimation(const std::string &animationName, bool looped = true) {
         this->animationName = animationName;
         this->animationTime = 0;
+
+        this->animationLooped = looped;
+        this->animationLastFramePlayed = false;
+    }
+
+    void setAnimationWithBlend(const std::string &animationName, bool looped = true, long blendTime = 100) {
+        this->animationNameOld = this->animationName;
+        this->animationTimeOld = this->animationTime;
+        this->animationLoopedOld = this->animationLooped;
+
+        this->animationName = animationName;
+        this->animationTime = 0;
+        this->animationLooped = looped;
+
+        this->animationBlendTime = blendTime;
+        this->animationBlend = true;
+
+        this->animationLastFramePlayed = false;
+    }
+
+    std::string getAnimationName() {
+        return this->animationName;
+    }
+
+    bool isAnimationFinished() {
+        return animationLastFramePlayed;
+    }
+
+    float getAnimationTimeScale() const {
+        return animationTimeScale;
+    }
+
+    void setAnimationTimeScale(float animationTimeScale) {
+        Model::animationTimeScale = animationTimeScale;
     }
 
     ~Model();
@@ -117,7 +171,7 @@ public:
     }
 
     /************Game Object methods **************/
-    uint32_t getWorldObjectID() {
+    uint32_t getWorldObjectID() const override {
         return objectID;
     }
     ObjectTypes getTypeID() const {
@@ -131,10 +185,7 @@ public:
     ImGuiResult addImGuiEditorElements(const ImGuiRequest &request);
     /************Game Object methods **************/
 
-    void attachAI(Actor *AIActor) {
-        //after this, clearing the AI is job of the model.
-        this->AIActor = AIActor;
-    }
+    void attachAI(ActorInterface *AIActor);
 
     uint32_t getAIID();
 
@@ -146,6 +197,47 @@ public:
         return modelAsset->getAssetID();
     }
 
+    /**
+     * This method allows attachment to a specific bone of the model, if a bone is selected. If no bone is selected, world transform is returned.
+     * If a bone is returned, bone id is set to the parameter attachedBone. If no bone is selected and world transform is returned,
+     * parameter will contain -1
+     *
+     * If the selected bone is not exposed, it creates a transform to expose.
+     * @param attachedBone -1 is no bone is selected, bone id if bone is selected
+     * @return pointer to selected bones transform or world transform of the object
+     */
+    Transformation* getAttachmentTransform(int32_t &attachedBone) {
+        if(selectedBoneID == -1) {
+            attachedBone = -1;
+            return &(this->transformation);
+        }
+        //return bones transformation, create expose transform if there is none.
+        if(exposedBoneTransforms.find(selectedBoneID) == exposedBoneTransforms.end()) {
+            exposedBoneTransforms[selectedBoneID] = new Transformation();
+            glm::vec3 temp1;//these are not used
+            glm::vec4 temp2;
+            glm::vec3 translate, scale;
+            glm::quat orientation;
+
+            glm::decompose(this->transformation.getWorldTransform() * boneTransforms[selectedBoneID], scale, orientation, translate, temp1, temp2);//update the current of thes
+
+            exposedBoneTransforms[selectedBoneID]->setTranslate(translate);
+            exposedBoneTransforms[selectedBoneID]->setScale(scale);
+            exposedBoneTransforms[selectedBoneID]->setOrientation(orientation);
+        }
+        attachedBone = selectedBoneID;
+        return exposedBoneTransforms[selectedBoneID];
+    }
+
+    /**
+     * This method is only to be used by WorldLoader, and even it is not proper, and should be removed.
+     * @param attachedBone
+     * @return
+     */
+    Transformation* getAttachmentTransformForKnownBone(int32_t attachmentBoneID) {
+        selectedBoneID = attachmentBoneID;
+        return getAttachmentTransform(attachmentBoneID);
+    }
 };
 
 #endif //LIMONENGINE_MODEL_H

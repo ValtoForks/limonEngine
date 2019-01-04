@@ -3,21 +3,30 @@
 
 #define NR_POINT_LIGHTS 4
 
+layout (location = 0) out vec4 diffuseAndSpecularLightedColor;
+layout (location = 1) out vec3 ambientColor;
+layout (location = 2) out vec3 normalOutput;
+
 layout (std140) uniform PlayerTransformBlock {
     mat4 camera;
     mat4 projection;
     mat4 cameraProjection;
+    mat4 inverseProjection;
+	mat4 inverseCamera;
     vec3 position;
+	vec3 cameraSpacePosition;
+    vec2 noiseScale;
 } playerTransforms;
 
-struct LightSource
-{
+struct LightSource {
     mat4 shadowMatrices[6];
     mat4 lightSpaceMatrix;
     vec3 position;
     float farPlanePoint;
     vec3 color;
     int type; //1 Directional, 2 point
+	vec3 attenuation;
+	vec3 ambient;
 };
 
 layout (std140) uniform LightSourceBlock
@@ -40,17 +49,18 @@ in VS_FS {
     vec4 fragPosLightSpace[NR_POINT_LIGHTS];
 } from_vs;
 
-out vec4 finalColor;
-
 uniform sampler2DArray shadowSamplerDirectional;
 uniform samplerCubeArray shadowSamplerPoint;
+uniform sampler2D ssaoSampler;
+uniform sampler2D ssaoNoiseSampler;
 
 uniform sampler2D ambientSampler;
 uniform sampler2D diffuseSampler;
 uniform sampler2D specularSampler;
 uniform sampler2D opacitySampler;
+uniform sampler2D normalSampler;
 
-uniform vec3 pointSampleOffsetDirections[20] = vec3[]
+vec3 pointSampleOffsetDirections[20] = vec3[]
 (
    vec3( 1,  1,  1), vec3( 1, -1,  1), vec3(-1, -1,  1), vec3(-1,  1,  1),
    vec3( 1,  1, -1), vec3( 1, -1, -1), vec3(-1, -1, -1), vec3(-1,  1, -1),
@@ -59,8 +69,10 @@ uniform vec3 pointSampleOffsetDirections[20] = vec3[]
    vec3( 0,  1,  1), vec3( 0, -1,  1), vec3( 0, -1, -1), vec3( 0,  1, -1)
 );
 
-float ShadowCalculationDirectional(vec4 fragPosLightSpace, vec3 lightDirection, float bias, float viewDistance, float lightIndex)
-{
+uniform vec3 ssaoKernel[128];
+uniform int ssaoSampleCount;
+
+float ShadowCalculationDirectional(vec4 fragPosLightSpace, float bias, float lightIndex){
     // perform perspective divide
     vec3 projectedCoordinates = fragPosLightSpace.xyz / fragPosLightSpace.w;
     // Transform to [0,1] range
@@ -90,6 +102,10 @@ float ShadowCalculationPoint(vec3 fragPos, float bias, float viewDistance, int l
 {
     // get vector between fragment position and light position
     vec3 fragToLight = fragPos - LightSources.lights[lightIndex].position;
+    float fragDistance = length(fragToLight);
+    if(LightSources.lights[lightIndex].farPlanePoint < fragDistance) {
+        return 1;//if outside of the active distance, in shadow
+    }
     // use the light to fragment vector to sample from the depth map
     float closestDepth = texture(shadowSamplerPoint, vec4(fragToLight, lightIndex)).r;
     // it is currently in linear range between [0,1]. Re-transform back to original value
@@ -107,40 +123,78 @@ float ShadowCalculationPoint(vec3 fragPos, float bias, float viewDistance, int l
         if(currentDepth + bias > closestDepth)
             shadow += 1.0;
     }
-    shadow /= float(samples);
+    //now calculate attenuation
+    float attenuation = 1.0 / (LightSources.lights[lightIndex].attenuation.x +
+                              (LightSources.lights[lightIndex].attenuation.y * fragDistance) +
+                               (LightSources.lights[lightIndex].attenuation.z * fragDistance * fragDistance));
+    attenuation = clamp(attenuation, 0.0, 1.0);
+    attenuation = 1 - attenuation;
+    if(attenuation == 1) {
+        shadow = 1;
+    } else {
+        shadow /= float(samples);
+        shadow = max(shadow, attenuation);
+    }
 
     return shadow;
 }
 
-void main(void)
-{
+vec3 calcViewSpacePos(vec3 screen) {
+    vec4 temp = vec4(screen.x, screen.y, screen.z, 1);
+    temp *= playerTransforms.inverseProjection;
+    vec3 camera_space = temp.xyz / temp.w;
+    return camera_space;
+}
+
+void main(void) {
         vec4 objectColor;
         if((material.isMap & 0x0004)!=0) {
             if((material.isMap & 0x0001)!=0) { //if there is a opacity map, and it with diffuse
                 vec4 opacity = texture(opacitySampler, from_vs.textureCoord);
+                if(opacity.a < 0.05) {
+                    discard;
+                }
                 objectColor = texture(diffuseSampler, from_vs.textureCoord);
                 objectColor.w =  opacity.a;//FIXME some other textures used x
             } else {
                 objectColor = texture(diffuseSampler, from_vs.textureCoord);
+                if(objectColor.a < 0.05) {
+                    discard;
+                }
             }
         } else {
             objectColor = vec4(material.diffuse, 1.0);
         }
 
-        vec3 lightingColorFactor = material.ambient;
-        if((material.isMap & 0x0008)!=0) {
-            lightingColorFactor = vec3(texture(ambientSampler, from_vs.textureCoord));
+        vec3 normal = from_vs.normal;
+
+        if((material.isMap & 0x0010) != 0) {
+            normal = -1 * vec3(texture(normalSampler, from_vs.textureCoord));
         }
+
+        normalOutput = normal;
+
+        if((material.isMap & 0x0008)!=0) {
+            ambientColor = vec3(texture(ambientSampler, from_vs.textureCoord));
+        } else {
+            ambientColor = material.ambient;
+        }
+        vec3 lightingColorFactor = ambientColor;
 
         float shadow;
         for(int i=0; i < NR_POINT_LIGHTS; ++i){
             if(LightSources.lights[i].type != 0) {
                 // Diffuse Lighting
-                vec3 lightDirectory = normalize(LightSources.lights[i].position - from_vs.fragPos);
-                float diffuseRate = max(dot(from_vs.normal, lightDirectory), 0.0);
+                vec3 lightDirectory;
+                if(LightSources.lights[i].type == 1) {
+                    lightDirectory = normalize(LightSources.lights[i].position);
+                } else if(LightSources.lights[i].type == 2) {
+                    lightDirectory = normalize(LightSources.lights[i].position - from_vs.fragPos);
+                }
+                float diffuseRate = max(dot(normal, lightDirectory), 0.0);
                 // Specular
                 vec3 viewDirectory = normalize(playerTransforms.position - from_vs.fragPos);
-                vec3 reflectDirectory = reflect(-lightDirectory, from_vs.normal);
+                vec3 reflectDirectory = reflect(-lightDirectory, normal);
                 float specularRate = max(dot(viewDirectory, reflectDirectory), 0.0);
                 if(specularRate != 0 && material.shininess != 0) {
                     specularRate = pow(specularRate, material.shininess);
@@ -151,15 +205,15 @@ void main(void)
                 float viewDistance = length(playerTransforms.position - from_vs.fragPos);
                 float bias = 0.0;
                 if(LightSources.lights[i].type == 1) {//directional light
-                    shadow = ShadowCalculationDirectional(from_vs.fragPosLightSpace[i], normalize(LightSources.lights[i].position - from_vs.fragPos), bias, viewDistance, i);
+                    shadow = ShadowCalculationDirectional(from_vs.fragPosLightSpace[i], bias, i);
                 } else if (LightSources.lights[i].type == 2){//point light
                     shadow = ShadowCalculationPoint(from_vs.fragPos, bias, viewDistance, i);
                 }
-                lightingColorFactor += ((1.0 - shadow) * (diffuseRate + specularRate) * LightSources.lights[i].color);
+                lightingColorFactor += ((1.0 - shadow) * (diffuseRate + specularRate) * LightSources.lights[i].color) + LightSources.lights[i].ambient;
+                ambientColor += LightSources.lights[i].ambient;
             }
         }
-
-        finalColor = vec4(
+        diffuseAndSpecularLightedColor = vec4(
         min(lightingColorFactor.x, 1.0),
         min(lightingColorFactor.y, 1.0),
         min(lightingColorFactor.z, 1.0),

@@ -19,7 +19,22 @@ uint32_t LimonAPI::addGuiText(const std::string &fontFilePath, uint32_t fontSize
     return worldAddGuiText(fontFilePath, fontSize, name, text, color, position,rotation);
 }
 
-uint32_t LimonAPI::updateGuiText(uint32_t guiTextID, const std::string &newText) {
+uint32_t LimonAPI::addGuiImage(const std::string &imageFilePath, const std::string &name, const Vec2 &position,
+                               const Vec2 &scale, float rotation) {
+    return worldAddGuiImage(imageFilePath, name, position, scale, rotation);
+}
+
+uint32_t LimonAPI::addObject(const std::string &modelFilePath, float modelWeight, bool physical,
+                             const glm::vec3 &position,
+                             const glm::vec3 &scale, const glm::quat &orientation) {
+    return worldAddModel(modelFilePath, modelWeight, physical, position, scale, orientation);
+}
+
+bool LimonAPI::attachObjectToObject(uint32_t objectID, uint32_t objectToAttachToID) {
+    return worldAttachObjectToObject(objectID, objectToAttachToID);
+}
+
+bool LimonAPI::updateGuiText(uint32_t guiTextID, const std::string &newText) {
     return worldUpdateGuiText(guiTextID, newText);
 }
 
@@ -33,8 +48,8 @@ std::vector<LimonAPI::ParameterRequest> LimonAPI::getResultOfTrigger(uint32_t Tr
     return results;
 }
 
-uint32_t LimonAPI::removeObject(uint32_t guiElementID) {
-    return worldRemoveObject(guiElementID);
+bool LimonAPI::removeObject(uint32_t objectID) {
+    return worldRemoveObject(objectID);
 }
 
 bool LimonAPI::removeTriggerObject(uint32_t TriggerObjectID) {
@@ -55,7 +70,7 @@ bool LimonAPI::attachSoundToObjectAndPlay(uint32_t objectWorldID, const std::str
 bool LimonAPI::detachSoundFromObject(uint32_t objectWorldID){
     return worldDetachSoundFromObject(objectWorldID);
 }
-bool LimonAPI::playSound(const std::string &soundPath, const glm::vec3 &position, bool looped){
+uint32_t LimonAPI::playSound(const std::string &soundPath, const glm::vec3 &position, bool looped){
     return worldPlaySound(soundPath, position, looped);
 }
 
@@ -115,6 +130,18 @@ bool LimonAPI::ParameterRequest::serialize(tinyxml2::XMLDocument &document, tiny
             currentElement->SetText("FreeNumber");
         }
             break;
+        case COORDINATE: {
+            currentElement->SetText("Coordinate");
+        }
+            break;
+        case TRANSFORM: {
+            currentElement->SetText("Transform");
+        }
+            break;
+        case MULTI_SELECT: {
+            currentElement->SetText("MultiSelect");
+        }
+
     }
     parameterNode->InsertEndChild(currentElement);
 
@@ -161,6 +188,44 @@ bool LimonAPI::ParameterRequest::serialize(tinyxml2::XMLDocument &document, tiny
             valueElement->SetText(commaSeperatedArray.c_str());
         }
         break;
+        case VEC4: {
+            currentElement->SetText("Vec4");
+            tinyxml2::XMLElement *xELement = document.NewElement("X");
+            xELement->SetText(std::to_string(value.vectorValue.x).c_str());
+            valueElement->InsertEndChild(xELement);
+            tinyxml2::XMLElement *yELement = document.NewElement("Y");
+            xELement->SetText(std::to_string(value.vectorValue.y).c_str());
+            valueElement->InsertEndChild(yELement);
+            tinyxml2::XMLElement *zELement = document.NewElement("Z");
+            xELement->SetText(std::to_string(value.vectorValue.z).c_str());
+            valueElement->InsertEndChild(zELement);
+            tinyxml2::XMLElement *wELement = document.NewElement("W");
+            xELement->SetText(std::to_string(value.vectorValue.w).c_str());
+            valueElement->InsertEndChild(wELement);
+        }
+            break;
+        case MAT4: {
+            currentElement->SetText("Mat4");
+
+            for (int32_t i = 0; i < 4; ++i) {
+                tinyxml2::XMLElement *rowELement = document.NewElement(std::to_string(i).c_str());
+                tinyxml2::XMLElement *xELement = document.NewElement("X");
+                xELement->SetText(std::to_string(value.matrixValue[i].x).c_str());
+                rowELement->InsertEndChild(xELement);
+                tinyxml2::XMLElement *yELement = document.NewElement("Y");
+                xELement->SetText(std::to_string(value.matrixValue[i].y).c_str());
+                rowELement->InsertEndChild(yELement);
+                tinyxml2::XMLElement *zELement = document.NewElement("Z");
+                xELement->SetText(std::to_string(value.matrixValue[i].z).c_str());
+                rowELement->InsertEndChild(zELement);
+                tinyxml2::XMLElement *wELement = document.NewElement("W");
+                xELement->SetText(std::to_string(value.matrixValue[i].w).c_str());
+                rowELement->InsertEndChild(wELement);
+                valueElement->InsertEndChild(rowELement);
+            }
+        }
+            break;
+
         default:
             currentElement->SetText("UNKNOWN");
     }
@@ -204,6 +269,12 @@ deserialize(tinyxml2::XMLElement *parameterNode, uint32_t &index) {
         this->requestType = RequestParameterTypes::GUI_TEXT;
     } else if(strcmp(parameterAttribute->GetText(), "FreeNumber") == 0) {
         this->requestType = RequestParameterTypes::FREE_NUMBER;
+    } else if(strcmp(parameterAttribute->GetText(), "Coordinate") == 0) {
+        this->requestType = RequestParameterTypes::COORDINATE;
+    } else if(strcmp(parameterAttribute->GetText(), "Transform") == 0) {
+        this->requestType = RequestParameterTypes::TRANSFORM;
+    } else if(strcmp(parameterAttribute->GetText(), "MultiSelect") == 0) {
+        this->requestType = RequestParameterTypes::MULTI_SELECT;
     } else {
         std::cerr << "Trigger parameter request type was unknown. " << parameterAttribute->GetText() << std::endl;
         return false;
@@ -285,6 +356,21 @@ deserialize(tinyxml2::XMLElement *parameterNode, uint32_t &index) {
                 commaSeperatedParameterString = commaSeperatedParameterString.substr(commaPosition + 1);
             }
         }
+    } else if(strcmp(parameterAttribute->GetText(),"Vec4")== 0) {
+        this->valueType = ValueTypes::VEC4;
+        if(this->isSet) {
+            parameterAttribute = parameterNode->FirstChildElement("Value");
+            loadVec4(parameterAttribute, this->value.vectorValue);
+        }
+    } else if(strcmp(parameterAttribute->GetText(),"Mat4")== 0) {
+        this->valueType = ValueTypes::MAT4;
+        if(this->isSet) {
+            parameterAttribute = parameterNode->FirstChildElement("Value");
+            for(long i = 1; i < value.longValues[0]; i++) {
+                tinyxml2::XMLElement *rowNode = parameterAttribute->FirstChildElement(std::to_string(i).c_str());;
+                loadVec4(rowNode, this->value.matrixValue[i]);
+            }
+        }
     } else {
         std::cerr << "Trigger parameter value type was unknown." << std::endl;
         return false;
@@ -297,4 +383,120 @@ deserialize(tinyxml2::XMLElement *parameterNode, uint32_t &index) {
     }
     index = std::stol(parameterAttribute->GetText());
     return true;
+}
+
+
+std::vector<LimonAPI::ParameterRequest> LimonAPI::rayCastToCursor() {
+    return worldRayCastToCursor();
+}
+
+std::vector<LimonAPI::ParameterRequest> LimonAPI::getObjectTransformation(uint32_t objectID) {
+    return worldGetObjectTransformation(objectID);
+}
+
+std::vector<LimonAPI::ParameterRequest> LimonAPI::getObjectTransformationMatrix(uint32_t objectID) {
+    return worldGetObjectTransformationMatrix(objectID);
+}
+
+bool LimonAPI::interactWithAI(uint32_t AIID, std::vector<LimonAPI::ParameterRequest> &interactionInformation) {
+    return worldInteractWithAI(AIID, interactionInformation);
+}
+
+void LimonAPI::interactWithPlayer(std::vector<LimonAPI::ParameterRequest> &input) {
+    return this->worldInteractWithPlayer(input);
+}
+
+void LimonAPI::addTimedEvent(long waitTime,
+                             std::function<void(const std::vector<LimonAPI::ParameterRequest> &)> methodToCall,
+                             std::vector<LimonAPI::ParameterRequest> parameters) {
+    worldAddTimedEvent(waitTime, methodToCall, parameters);
+}
+
+
+
+LimonAPI::Vec4 LimonAPI::getPlayerAttachedModelOffset() {
+    return worldGetPlayerAttachmentOffset();
+}
+
+bool LimonAPI::setPlayerAttachedModelOffset(LimonAPI::Vec4 newOffset) {
+    return worldSetPlayerAttachmentOffset(newOffset);
+}
+
+uint32_t LimonAPI::getPlayerAttachedModel() {
+    return worldGetPlayerAttachedModel();
+}
+
+std::vector<uint32_t> LimonAPI::getModelChildren(uint32_t modelID) {
+    return worldGetModelChildren(modelID);
+}
+
+std::string LimonAPI::getModelAnimationName(uint32_t modelID) {
+    return worldGetModelAnimationName(modelID);
+}
+
+bool LimonAPI::getModelAnimationFinished(uint32_t modelID) {
+    return worldGetModelAnimationFinished(modelID);
+}
+
+bool LimonAPI::setModelAnimation(uint32_t modelID, std::string animationName, bool isLooped) {
+    return worldSetAnimationOfModel(modelID, animationName, isLooped);
+}
+
+bool LimonAPI::setModelAnimationWithBlend(uint32_t modelID, std::string animationName, bool isLooped, long blendTime) {
+    return worldSetAnimationOfModelWithBlend(modelID, animationName, isLooped, blendTime);
+}
+
+void LimonAPI::killPlayer() {
+    worldKillPlayer();
+}
+
+bool LimonAPI::setObjectTranslate(uint32_t objectID, const LimonAPI::Vec4 &position) {
+    return worldSetObjectTranslate(objectID, position);
+}
+
+bool LimonAPI::setObjectScale(uint32_t objectID, const LimonAPI::Vec4 &scale) {
+    return worldSetObjectScale(objectID, scale);
+}
+
+bool LimonAPI::setObjectOrientation(uint32_t objectID, const LimonAPI::Vec4 &orientation) {
+    return worldSetObjectOrientation(objectID, orientation);
+}
+
+bool LimonAPI::addObjectTranslate(uint32_t objectID, const LimonAPI::Vec4 &position) {
+    return worldAddObjectTranslate(objectID, position);
+}
+
+bool LimonAPI::addObjectScale(uint32_t objectID, const LimonAPI::Vec4 &scale) {
+    return worldAddObjectScale(objectID, scale);
+}
+
+bool LimonAPI::addObjectOrientation(uint32_t objectID, const LimonAPI::Vec4 &orientation) {
+    return worldAddObjectOrientation(objectID, orientation);
+}
+
+void LimonAPI::loadVec4(tinyxml2::XMLNode *vectorNode, LimonAPI::Vec4 &vector) {
+    tinyxml2::XMLElement *vectorElementNode = vectorNode->FirstChildElement("X");
+    if(vectorElementNode != nullptr) {
+        vector.x = std::stof(vectorElementNode->GetText());
+    } else {
+        vector.x = 0;
+    }
+    vectorElementNode = vectorNode->FirstChildElement("Y");
+    if(vectorElementNode != nullptr) {
+        vector.y = std::stof(vectorElementNode->GetText());
+    } else {
+        vector.y = 0;
+    }
+    vectorElementNode = vectorNode->FirstChildElement("Z");
+    if(vectorElementNode != nullptr) {
+        vector.z = std::stof(vectorElementNode->GetText());
+    } else {
+        vector.z = 0;
+    }
+    vectorElementNode = vectorNode->FirstChildElement("W");
+    if(vectorElementNode != nullptr) {
+        vector.w = std::stof(vectorElementNode->GetText());
+    } else {
+        vector.w = 0;
+    }
 }

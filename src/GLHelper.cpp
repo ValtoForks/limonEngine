@@ -2,6 +2,7 @@
 // Created by Engin Manap on 10.02.2016.
 //
 
+#include <random>
 #include "GLHelper.h"
 #include "GLSLProgram.h"
 
@@ -90,7 +91,7 @@ GLuint GLHelper::createProgram(const std::vector<GLuint> &shaderList) {
         std::cerr << "Linking failed: \n" << strInfoLog << std::endl;
         delete[] strInfoLog;
     } else {
-        std::cout << "Program compiled successfully" << std::endl;
+        //std::cout << "Program compiled successfully" << std::endl;
     }
 
     for (size_t iLoop = 0; iLoop < shaderList.size(); iLoop++) {
@@ -206,7 +207,7 @@ void GLHelper::attachGeneralUBOs(const GLuint program){//Attach the light block 
         glBindBuffer(GL_UNIFORM_BUFFER, lightUBOLocation);
         glUniformBlockBinding(program, uniformIndex, lightAttachPoint);
         glBindBufferRange(GL_UNIFORM_BUFFER, lightAttachPoint, lightUBOLocation, 0,
-                          lightUniformSize * NR_POINT_LIGHTS);
+                          lightUniformSize * NR_TOTAL_LIGHTS);
         glBindBuffer(GL_UNIFORM_BUFFER, 0);
     }
 
@@ -222,6 +223,9 @@ void GLHelper::attachGeneralUBOs(const GLuint program){//Attach the light block 
 
 
 GLHelper::GLHelper(Options *options): options(options) {
+
+    this->screenHeight = options->getScreenHeight();
+    this->screenWidth = options->getScreenWidth();
     GLenum rev;
     error = GL_NO_ERROR;
     glewExperimental = GL_TRUE;
@@ -264,7 +268,7 @@ GLHelper::GLHelper(Options *options): options(options) {
     glDepthMask(GL_TRUE);
     glDepthRange(0.0f, 1.0f);
 
-    glEnable(GL_BLEND);
+    glEnablei(GL_BLEND, 0);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
@@ -313,7 +317,8 @@ GLHelper::GLHelper(Options *options): options(options) {
     //create the Light Uniform Buffer Object for later usage
     glGenBuffers(1, &lightUBOLocation);
     glBindBuffer(GL_UNIFORM_BUFFER, lightUBOLocation);
-    glBufferData(GL_UNIFORM_BUFFER, lightUniformSize * NR_POINT_LIGHTS, nullptr, GL_STATIC_DRAW);
+    std::vector<GLubyte> emptyData(lightUniformSize * NR_TOTAL_LIGHTS, 0);
+    glBufferData(GL_UNIFORM_BUFFER, lightUniformSize * NR_TOTAL_LIGHTS, &emptyData[0], GL_STATIC_DRAW);
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
 
     //create player transforms uniform buffer object
@@ -346,7 +351,7 @@ GLHelper::GLHelper(Options *options): options(options) {
     glGenTextures(1, &depthMapDirectional);
     glBindTexture(GL_TEXTURE_2D_ARRAY, depthMapDirectional);
     glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_DEPTH_COMPONENT, options->getShadowMapDirectionalWidth(),
-                 options->getShadowMapDirectionalHeight(), NR_POINT_LIGHTS, 0,
+                 options->getShadowMapDirectionalHeight(), NR_TOTAL_LIGHTS, 0,
                  GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
 
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -369,7 +374,7 @@ GLHelper::GLHelper(Options *options): options(options) {
     glGenTextures(1, &depthCubemapPoint);
     glBindTexture(GL_TEXTURE_CUBE_MAP_ARRAY_ARB, depthCubemapPoint);
     glTexImage3D(GL_TEXTURE_CUBE_MAP_ARRAY_ARB, 0, GL_DEPTH_COMPONENT, options->getShadowMapPointWidth(),
-                 options->getShadowMapPointHeight(), NR_POINT_LIGHTS*6, 0,
+                 options->getShadowMapPointHeight(), NR_TOTAL_LIGHTS*6, 0,
                  GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
 
     glTexParameteri(GL_TEXTURE_CUBE_MAP_ARRAY_ARB, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -389,6 +394,153 @@ GLHelper::GLHelper(Options *options): options(options) {
     glReadBuffer(GL_NONE);
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    //create prepass depth
+    glGenFramebuffers(1, &depthOnlyFrameBuffer);
+    glGenTextures(1, &depthMap);
+    glBindTexture(GL_TEXTURE_2D, depthMap);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, screenWidth, screenHeight, 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+    glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, depthOnlyFrameBuffer);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthMap, 0);
+    glDrawBuffer(GL_NONE);
+    glReadBuffer(GL_NONE);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    // Create default framebuffer with normal map extraction
+
+    glGenFramebuffers(1, &coloringFrameBuffer);
+    glGenTextures(1, &normalMap);
+    glBindTexture(GL_TEXTURE_2D, normalMap);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, screenWidth, screenHeight, 0, GL_RGB, GL_FLOAT, nullptr);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+    glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    glGenTextures(1, &diffuseAndSpecularLightedMap);
+    glBindTexture(GL_TEXTURE_2D, diffuseAndSpecularLightedMap);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, screenWidth, screenHeight, 0, GL_RGBA, GL_FLOAT, nullptr);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+    glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    glGenTextures(1, &ambientMap);
+    glBindTexture(GL_TEXTURE_2D, ambientMap);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, screenWidth, screenHeight, 0, GL_RGB, GL_FLOAT, nullptr);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+    glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, coloringFrameBuffer);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, diffuseAndSpecularLightedMap, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, ambientMap, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, normalMap, 0);
+
+    glGenRenderbuffers(1, &rboDepth);
+    glBindRenderbuffer(GL_RENDERBUFFER, rboDepth);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, screenWidth, screenHeight);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, rboDepth);
+    unsigned int attachments[3] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2 };
+    glDrawBuffers(3, attachments);
+    if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        std::cerr << "coloring frame buffer is not complete!" << std::endl;
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    // SSAO Framebuffer
+    glGenFramebuffers(1, &ssaoGenerationFrameBuffer);
+
+    glGenTextures(1, &ssaoMap);
+    glBindTexture(GL_TEXTURE_2D, ssaoMap);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, screenWidth, screenHeight, 0, GL_RGB, GL_FLOAT, nullptr);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+    glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, ssaoGenerationFrameBuffer);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, ssaoMap, 0);
+
+    unsigned int attachments2[2] = { GL_NONE, GL_COLOR_ATTACHMENT1 };
+    glDrawBuffers(2, attachments2);
+    GLenum fbStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    if (fbStatus != GL_FRAMEBUFFER_COMPLETE) {
+        std::cerr << "SSAO frame buffer is not complete: " << fbStatus  << ": " << gluErrorString(fbStatus) << std::endl;
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    // SSAO Framebuffer
+
+    /**************************** SSAO blur ******************************************/
+
+    // SSAO Framebuffer
+    glGenFramebuffers(1, &ssaoBlurFrameBuffer);
+
+    glGenTextures(1, &ssaoBlurredMap);
+    glBindTexture(GL_TEXTURE_2D, ssaoBlurredMap);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, screenWidth, screenHeight, 0, GL_RGB, GL_FLOAT, nullptr);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+    glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, ssaoBlurFrameBuffer);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, ssaoBlurredMap, 0);
+
+    unsigned int attachments3[2] = { GL_NONE, GL_COLOR_ATTACHMENT1 };
+    glDrawBuffers(2, attachments3);
+    fbStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    if (fbStatus != GL_FRAMEBUFFER_COMPLETE) {
+        std::cerr << "SSAO Blur frame buffer is not complete: " << fbStatus  << ": " << gluErrorString(fbStatus) << std::endl;
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    /********************** SSAO BLUR END ***********************************************************/
+
+    /****************************** SSAO NOISE **************************************/
+    std::uniform_real_distribution<GLfloat> randomFloats(0.0, 1.0); // generates random floats between 0.0 and 1.0
+    std::default_random_engine generator;
+    // generate noise texture
+    // ----------------------
+    std::vector<glm::vec3> ssaoNoise;
+    for (unsigned int i = 0; i < 16; i++)
+    {
+        glm::vec3 noise(randomFloats(generator) * 2.0 - 1.0, randomFloats(generator) * 2.0 - 1.0, 0.0f); // rotate around z-axis (in tangent space)
+        ssaoNoise.push_back(noise);
+    }
+    glGenTextures(1, &noiseTexture);
+    glBindTexture(GL_TEXTURE_2D, noiseTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, 4, 4, 0, GL_RGB, GL_FLOAT, &ssaoNoise[0]);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    /****************************** SSAO NOISE **************************************/
 
     frustumPlanes.resize(6);
 
@@ -554,34 +706,63 @@ void GLHelper::switchRenderToShadowMapDirectional(const unsigned int index) {
     glViewport(0, 0, options->getShadowMapDirectionalWidth(), options->getShadowMapDirectionalHeight());
     glBindFramebuffer(GL_FRAMEBUFFER, depthOnlyFrameBufferDirectional);
     glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, depthMapDirectional, 0, index);
-
     glCullFace(GL_FRONT);
-    //glDisable(GL_CULL_FACE);
-
     checkErrors("switchRenderToShadowMapDirectional");
 }
 
 void GLHelper::switchRenderToShadowMapPoint() {
-    checkErrors("switchRenderToShadowMapPointBefore");
     glViewport(0, 0, options->getShadowMapPointWidth(), options->getShadowMapPointHeight());
     glBindFramebuffer(GL_FRAMEBUFFER, depthOnlyFrameBufferPoint);
-
     glCullFace(GL_FRONT);
-    //glDisable(GL_CULL_FACE);
-
     checkErrors("switchRenderToShadowMapPoint");
 }
 
-
-void GLHelper::switchRenderToDefault() {
+void GLHelper::switchRenderToDepthPrePass() {
     glViewport(0, 0, screenWidth, screenHeight);
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, depthOnlyFrameBuffer);
+    glCullFace(GL_BACK);
+    checkErrors("switchRenderToDepthPrePass");
+}
+
+void GLHelper::switchRenderToColoring() {
+    glViewport(0, 0, screenWidth, screenHeight);
+    glBindFramebuffer(GL_FRAMEBUFFER, coloringFrameBuffer);
+
     //we bind shadow map to last texture unit
     state->attach2DTextureArray(depthMapDirectional, maxTextureImageUnits - 1);
     state->attachCubemapArray(depthCubemapPoint, maxTextureImageUnits - 2);
+    state->attachTexture(depthMap, maxTextureImageUnits - 3);
+    state->attachTexture(noiseTexture, maxTextureImageUnits - 4);
     glCullFace(GL_BACK);
-    //glEnable(GL_CULL_FACE);
-    checkErrors("switchRenderToDefault");
+    checkErrors("switchRenderToColoring");
+}
+
+void GLHelper::switchRenderToSSAOGeneration() {
+    glViewport(0, 0, screenWidth, screenHeight);
+    glBindFramebuffer(GL_FRAMEBUFFER, ssaoGenerationFrameBuffer);
+    state->attachTexture(depthMap, 1);
+    state->attachTexture(normalMap, 2);
+    state->attachTexture(noiseTexture, 3);
+    glCullFace(GL_BACK);
+    checkErrors("switchRenderToSSAOGeneration");
+}
+
+void GLHelper::switchRenderToSSAOBlur() {
+    glViewport(0, 0, screenWidth, screenHeight);
+    glBindFramebuffer(GL_FRAMEBUFFER, ssaoBlurFrameBuffer);
+    state->attachTexture(ssaoMap, 1);
+    glCullFace(GL_BACK);
+    checkErrors("switchRenderToSSAOBlur");
+}
+
+void GLHelper::switchRenderToCombining(){
+    glViewport(0, 0, screenWidth, screenHeight);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    //we combine diffuse+specular lighted with ambient / SSAO
+    state->attachTexture(diffuseAndSpecularLightedMap, 1);
+    state->attachTexture(ambientMap, 2);
+    state->attachTexture(ssaoBlurredMap,3);
+    checkErrors("switchRenderToCombining");
 }
 
 void GLHelper::render(const GLuint program, const GLuint vao, const GLuint ebo, const GLuint elementCount) {
@@ -598,7 +779,6 @@ void GLHelper::render(const GLuint program, const GLuint vao, const GLuint ebo, 
     renderTriangleCount = renderTriangleCount + elementCount;
     glDrawElements(GL_TRIANGLES, elementCount, GL_UNSIGNED_INT, nullptr);
     glBindVertexArray(0);
-    //state->setProgram(0);
 
     checkErrors("render");
 }
@@ -669,6 +849,20 @@ bool GLHelper::setUniform(const GLuint programID, const GLuint uniformID, const 
     }
 }
 
+bool GLHelper::setUniform(const GLuint programID, const GLuint uniformID, const std::vector<glm::vec3> &vectorArray) {
+    if (!glIsProgram(programID)) {
+        std::cerr << "invalid program for setting uniform." << std::endl;
+        return false;
+    } else {
+        state->setProgram(programID);
+        glUniform3fv(uniformID, vectorArray.size(), glm::value_ptr(*vectorArray.data()));
+                //state->setProgram(0);
+        uniformSetCount++;
+        checkErrors("setUniformVector");
+        return true;
+    }
+}
+
 bool GLHelper::setUniform(const GLuint programID, const GLuint uniformID, const float value) {
     if (!glIsProgram(programID)) {
         std::cerr << "invalid program for setting uniform." << std::endl;
@@ -707,7 +901,11 @@ GLHelper::~GLHelper() {
     deleteBuffer(1, playerUBOLocation);
     deleteBuffer(1, allMaterialsUBOLocation);
     deleteBuffer(1, depthMapDirectional);
+    deleteBuffer(1, depthCubemapPoint);
+    deleteBuffer(1, depthMap);
     glDeleteFramebuffers(1, &depthOnlyFrameBufferDirectional); //maybe we should wrap this up too
+    glDeleteFramebuffers(1, &depthOnlyFrameBufferPoint);
+    glDeleteFramebuffers(1, &depthOnlyFrameBuffer);
     //state->setProgram(0);
 }
 
@@ -717,7 +915,8 @@ void GLHelper::reshape() {
     this->screenWidth = options->getScreenWidth();
     glViewport(0, 0, options->getScreenWidth(), options->getScreenHeight());
     aspect = float(options->getScreenHeight()) / float(options->getScreenWidth());
-    perspectiveProjectionMatrix = glm::perspective(options->PI/3.0f, 1.0f / aspect, 0.1f, 1000.0f);
+    perspectiveProjectionMatrix = glm::perspective(options->PI/3.0f, 1.0f / aspect, 0.01f, 10000.0f);
+    inverseProjection = glm::inverse(perspectiveProjectionMatrix);
     orthogonalProjectionMatrix = glm::ortho(0.0f, (float) options->getScreenWidth(), 0.0f, (float) options->getScreenHeight());
     checkErrors("reshape");
 }
@@ -863,11 +1062,6 @@ void GLHelper::drawLines(GLSLProgram &program, uint32_t vao, uint32_t vbo, const
 }
 
 void GLHelper::setLight(const Light &light, const int i) {
-    glm::mat4 lightView = glm::lookAt(light.getPosition(),
-                                      glm::vec3(0.0f, 0.0f, 0.0f),
-                                      glm::vec3(0.0f, 1.0f, 0.0f));
-
-    glm::mat4 lightSpaceMatrix = lightProjectionMatrixDirectional * lightView;
     GLint lightType;
     switch (light.getLightType()) {
         case Light::DIRECTIONAL:
@@ -880,13 +1074,14 @@ void GLHelper::setLight(const Light &light, const int i) {
 
     //std::cout << "light type is " << lightType << std::endl;
     //std::cout << "size is " << sizeof(GLint) << std::endl;
-    float farPlane = 100;
+    float farPlane = light.getActiveDistance();
+    glm::vec3 attenuation = light.getAttenuation();
 
     glBindBuffer(GL_UNIFORM_BUFFER, lightUBOLocation);
     glBufferSubData(GL_UNIFORM_BUFFER, i * lightUniformSize,
                     sizeof(glm::mat4) * 6, light.getShadowMatrices());
     glBufferSubData(GL_UNIFORM_BUFFER, i * lightUniformSize + sizeof(glm::mat4) * 6,
-                    sizeof(glm::mat4), glm::value_ptr(lightSpaceMatrix));
+                    sizeof(glm::mat4), glm::value_ptr(light.getLightSpaceMatrix()));
     glBufferSubData(GL_UNIFORM_BUFFER, i * lightUniformSize + sizeof(glm::mat4) * 7,
                     sizeof(glm::vec3), &light.getPosition());
     glBufferSubData(GL_UNIFORM_BUFFER, i * lightUniformSize + sizeof(glm::mat4) * 7 + sizeof(glm::vec3),
@@ -895,11 +1090,15 @@ void GLHelper::setLight(const Light &light, const int i) {
                     sizeof(glm::vec3), &light.getColor());
     glBufferSubData(GL_UNIFORM_BUFFER, i * lightUniformSize + sizeof(glm::mat4) * 7 + sizeof(glm::vec4) + sizeof(glm::vec3),
                     sizeof(GLint), &lightType);
+    glBufferSubData(GL_UNIFORM_BUFFER, i * lightUniformSize + sizeof(glm::mat4) * 7 + 2 *sizeof(glm::vec4),
+                    sizeof(glm::vec3), glm::value_ptr(attenuation));
+    glBufferSubData(GL_UNIFORM_BUFFER, i * lightUniformSize + sizeof(glm::mat4) * 7 + 3 *sizeof(glm::vec4),
+                    sizeof(glm::vec3), glm::value_ptr(light.getAmbientColor()));
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
     checkErrors("setLight");
 }
 
-void GLHelper::setMaterial(const Material* material) {
+void GLHelper::setMaterial(std::shared_ptr<const Material> material) {
     /*
      * this buffer has 2 objects, model has mat4 and then the material below:
      *
@@ -946,12 +1145,22 @@ void GLHelper::setModelIndexesUBO(std::vector<uint32_t> &modelIndicesList) {
 
 void GLHelper::setPlayerMatrices(const glm::vec3 &cameraPosition, const glm::mat4 &cameraTransform) {
     this->cameraMatrix = cameraTransform;
+    this->cameraPosition= cameraPosition;
+    glm::vec3 cameraSpacePosition = glm::vec3(cameraMatrix * glm::vec4(cameraPosition, 1.0));
+    glm::mat4 inverseCameraMatrix = glm::inverse(cameraTransform);
     glBindBuffer(GL_UNIFORM_BUFFER, playerUBOLocation);
-    glBufferSubData(GL_UNIFORM_BUFFER, 0 * sizeof(glm::mat4), sizeof(glm::mat4), &cameraMatrix);//changes with camera
-    glBufferSubData(GL_UNIFORM_BUFFER, 1 * sizeof(glm::mat4), sizeof(glm::mat4), &perspectiveProjectionMatrix);//never changes
+    glBufferSubData(GL_UNIFORM_BUFFER, 0 * sizeof(glm::mat4), sizeof(glm::mat4), glm::value_ptr(cameraMatrix));//changes with camera
+    glBufferSubData(GL_UNIFORM_BUFFER, 1 * sizeof(glm::mat4), sizeof(glm::mat4), glm::value_ptr(perspectiveProjectionMatrix));//never changes
     glm::mat4 viewMatrix = perspectiveProjectionMatrix * cameraMatrix;
-    glBufferSubData(GL_UNIFORM_BUFFER, 2 * sizeof(glm::mat4), sizeof(glm::mat4), &viewMatrix);//changes with camera
-    glBufferSubData(GL_UNIFORM_BUFFER, 3 * sizeof(glm::mat4), sizeof(glm::vec3), &cameraPosition);//changes with camera
+    glBufferSubData(GL_UNIFORM_BUFFER, 2 * sizeof(glm::mat4), sizeof(glm::mat4), glm::value_ptr(viewMatrix));//changes with camera
+    glBufferSubData(GL_UNIFORM_BUFFER, 3 * sizeof(glm::mat4), sizeof(glm::mat4), glm::value_ptr(inverseProjection));//never changes
+
+    glBufferSubData(GL_UNIFORM_BUFFER, 4 * sizeof(glm::mat4), sizeof(glm::mat4), glm::value_ptr(inverseCameraMatrix));//changes with camera
+    glBufferSubData(GL_UNIFORM_BUFFER, 5 * sizeof(glm::mat4), sizeof(glm::vec3), glm::value_ptr(cameraPosition));//changes with camera
+    glBufferSubData(GL_UNIFORM_BUFFER, 5 * sizeof(glm::mat4)+ sizeof(glm::vec4), sizeof(glm::vec3), glm::value_ptr(cameraSpacePosition));//changes with camera
+
+    glm::vec2 noiseScale(this->screenWidth / 4, this->screenHeight / 4);
+    glBufferSubData(GL_UNIFORM_BUFFER, 5 * sizeof(glm::mat4)+ 2* sizeof(glm::vec4), sizeof(glm::vec2), glm::value_ptr(noiseScale));//never changes
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
 
     calculateFrustumPlanes(cameraMatrix, perspectiveProjectionMatrix, frustumPlanes);
